@@ -19,16 +19,6 @@ from pyairtable import Api, Table
 import requests
 from datetime import datetime, timezone
 
-# Load environment variables
-load_dotenv()
-
-# Debug logging for environment variables
-logger.info("Environment Variables Check:")
-logger.info(f"AIRTABLE_API_KEY present: {'AIRTABLE_API_KEY' in os.environ}")
-logger.info(f"AIRTABLE_BASE_ID present: {'AIRTABLE_BASE_ID' in os.environ}")
-logger.info(f"TELEGRAM_BOT_TOKEN present: {'TELEGRAM_BOT_TOKEN' in os.environ}")
-logger.info(f"WEBHOOK_URL present: {'WEBHOOK_URL' in os.environ}")
-
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -39,6 +29,16 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Load environment variables
+load_dotenv()
+
+# Debug logging for environment variables
+logger.info("Environment Variables Check:")
+logger.info(f"AIRTABLE_API_KEY present: {'AIRTABLE_API_KEY' in os.environ}")
+logger.info(f"AIRTABLE_BASE_ID present: {'AIRTABLE_BASE_ID' in os.environ}")
+logger.info(f"TELEGRAM_BOT_TOKEN present: {'TELEGRAM_BOT_TOKEN' in os.environ}")
+logger.info(f"WEBHOOK_URL present: {'WEBHOOK_URL' in os.environ}")
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -269,7 +269,7 @@ async def handle_project_callback(update: Update, context: ContextTypes.DEFAULT_
             for update in updates[:3]:  # Show last 3 updates
                 fields = update['fields']
                 updates_text += f"\n📅 {fields.get('Timestamp', 'No date')}\n"
-                updates_text += f"Progress: {fields.get('Update Text', 'No update')}\n"
+                updates_text += f"Progress: {fields.get('Update', 'No update')}\n"
                 if fields.get('Blockers'):
                     updates_text += f"Blockers: {fields['Blockers']}\n"
         else:
@@ -522,7 +522,7 @@ async def update_blockers(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Prepare update data
         update_data = {
             'Project': [context.user_data['selected_project_id']],
-            'Update Text': context.user_data['progress'],
+            'Update': context.user_data['progress'],
             'Blockers': context.user_data['blockers'],
             'Updated By': str(update.effective_user.id),
         }

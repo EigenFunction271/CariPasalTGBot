@@ -67,7 +67,7 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    | Field             | Type           | Notes                                    |
    |------------------|----------------|------------------------------------------|
    | Project          | Link to Project| Link to Projects table                   |
-   | Update Text      | Long text      | Multiple lines allowed                   |
+   | Update           | Long text      | Multiple lines allowed                   |
    | Blockers         | Long text      | Multiple lines allowed                   |
    | Updated By       | Text           | Telegram ID                              |
    | Timestamp        | Date           | Auto-generated                           |
