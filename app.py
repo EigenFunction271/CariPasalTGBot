@@ -18,7 +18,7 @@ from telegram.ext import (
 from pyairtable import Api, Table
 import requests
 from datetime import datetime, timezone
-import asyncio
+# import asyncio # No longer needed directly in the webhook handler
 
 # Configure logging
 logging.basicConfig(
@@ -42,7 +42,8 @@ logger.info(f"TELEGRAM_BOT_TOKEN present: {'TELEGRAM_BOT_TOKEN' in os.environ}")
 logger.info(f"WEBHOOK_URL present: {'WEBHOOK_URL' in os.environ}")
 
 # Create the Telegram Application object at the top level
-application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
+# We will initialize it properly in main()
+application: Optional[Application] = None
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -64,10 +65,25 @@ def ping():
     })
 
 # Telegram webhook endpoint
+# This function must be async to await application.process_update
 @app.route('/', methods=['POST'])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))
+async def telegram_webhook():
+    if application is None:
+        logger.error("Telegram Application not initialized when webhook received.")
+        return 'Internal Server Error: Bot not ready', 500
+    
+    # Get the JSON data from the request
+    data = request.get_json(force=True)
+    logger.info(f"Received webhook update: {data}") # Log incoming updates
+    
+    # Process the update
+    update = Update.de_json(data, application.bot)
+    try:
+        await application.process_update(update)
+    except Exception as e:
+        logger.error(f"Error processing update: {e}", exc_info=True)
+        return 'Error processing update', 500 # Return an error status
+    
     return 'ok', 200
 
 # Validate required environment variables
@@ -89,15 +105,13 @@ if not airtable_token.startswith('pat'):
     logger.error("Invalid Airtable token format. Personal Access Tokens should start with 'pat'")
     sys.exit(1)
 
-# Initialize Airtable
+# Initialize Airtable (kept outside main as it's a global dependency)
 try:
-    # The token is now a Personal Access Token, but the API usage remains the same
     airtable = Api(airtable_token)
     base = airtable.base(os.getenv('AIRTABLE_BASE_ID'))
     projects_table = base.table('Ongoing projects')
     updates_table = base.table('Updates')
     
-    # Test the connection with more detailed error handling
     try:
         test_result = projects_table.all(limit=1)
         logger.info("Successfully connected to Airtable")
@@ -277,8 +291,8 @@ async def handle_project_callback(update: Update, context: ContextTypes.DEFAULT_
         # Format updates
         updates_text = "\n\n*Recent Updates:*\n"
         if updates:
-            for update in updates[:3]:  # Show last 3 updates
-                fields = update['fields']
+            for update_record in updates[:3]:  # Show last 3 updates
+                fields = update_record['fields']
                 updates_text += f"\n📅 {fields.get('Timestamp', 'No date')}\n"
                 updates_text += f"Progress: {fields.get('Update', 'No update')}\n"
                 if fields.get('Blockers'):
@@ -566,66 +580,101 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         logger.error(f"Error in error handler: {e}")
 
-def main() -> None:
-    """Start the bot."""
+def setup_bot_handlers(app_instance: Application) -> None:
+    """Sets up all bot handlers for the given Application instance."""
+    # Add error handler
+    app_instance.add_error_handler(error_handler)
+
+    # Add conversation handler for new project
+    new_project_handler = ConversationHandler(
+        entry_points=[CommandHandler('newproject', newproject)],
+        states={
+            PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_name)],
+            PROJECT_TAGLINE: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_tagline)],
+            PROBLEM_STATEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, problem_statement)],
+            TECH_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, tech_stack)],
+            GITHUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, github_link)],
+            PROJECT_STATUS: [CallbackQueryHandler(project_status)],
+            HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, help_needed)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    # Add conversation handler for update project
+    update_project_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler('updateproject', updateproject),
+            CallbackQueryHandler(handle_project_callback, pattern=f"^{UPDATE_PREFIX}")
+        ],
+        states={
+            SELECT_PROJECT: [CallbackQueryHandler(select_project)],
+            UPDATE_PROGRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_progress)],
+            UPDATE_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_blockers)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
+
+    # Add handlers
+    app_instance.add_handler(CommandHandler("start", start))
+    app_instance.add_handler(new_project_handler)
+    app_instance.add_handler(update_project_handler)
+    app_instance.add_handler(CommandHandler("myprojects", myprojects))
+    app_instance.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
+
+async def set_telegram_webhook(bot_token: str, webhook_url: str) -> None:
+    """Sets the Telegram webhook."""
+    set_webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
     try:
-        # Add error handler
-        application.add_error_handler(error_handler)
+        resp = requests.post(set_webhook_url, data={"url": webhook_url})
+        resp.raise_for_status() # Raise an exception for bad status codes
+        logger.info(f"Set webhook response: {resp.text}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to set webhook: {e}")
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while setting webhook: {e}")
 
-        # Add conversation handler for new project
-        new_project_handler = ConversationHandler(
-            entry_points=[CommandHandler('newproject', newproject)],
-            states={
-                PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_name)],
-                PROJECT_TAGLINE: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_tagline)],
-                PROBLEM_STATEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, problem_statement)],
-                TECH_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, tech_stack)],
-                GITHUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, github_link)],
-                PROJECT_STATUS: [CallbackQueryHandler(project_status)],
-                HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, help_needed)],
-            },
-            fallbacks=[CommandHandler('cancel', cancel)],
-        )
+async def run_bot_application():
+    """Initializes and runs the Telegram bot application."""
+    global application # Declare global to modify the top-level application variable
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+    webhook_url = os.getenv('WEBHOOK_URL')
 
-        # Add conversation handler for update project
-        update_project_handler = ConversationHandler(
-            entry_points=[
-                CommandHandler('updateproject', updateproject),
-                CallbackQueryHandler(handle_project_callback, pattern=f"^{UPDATE_PREFIX}")
-            ],
-            states={
-                SELECT_PROJECT: [CallbackQueryHandler(select_project)],
-                UPDATE_PROGRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_progress)],
-                UPDATE_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_blockers)],
-            },
-            fallbacks=[CommandHandler('cancel', cancel)],
-        )
+    if not bot_token or not webhook_url:
+        logger.error("TELEGRAM_BOT_TOKEN or WEBHOOK_URL not set; cannot initialize bot application.")
+        sys.exit(1)
 
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(new_project_handler)
-        application.add_handler(update_project_handler)
-        application.add_handler(CommandHandler("myprojects", myprojects))
-        application.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
+    # Initialize the Application properly
+    application = Application.builder().token(bot_token).build()
+    
+    # Set up handlers
+    setup_bot_handlers(application)
 
-        # Automatically set the Telegram webhook
-        webhook_url = os.getenv('WEBHOOK_URL')
-        bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        if webhook_url and bot_token:
-            set_webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
-            try:
-                resp = requests.post(set_webhook_url, data={"url": webhook_url})
-                logger.info(f"Set webhook response: {resp.text}")
-            except Exception as e:
-                logger.error(f"Failed to set webhook: {e}")
-        else:
-            logger.warning("WEBHOOK_URL or TELEGRAM_BOT_TOKEN not set; skipping webhook setup.")
+    # Set the webhook
+    await set_telegram_webhook(bot_token, webhook_url)
+    
+    # Start the application in webhook mode
+    # This prepares the application to process updates, but Flask handles the HTTP server part.
+    await application.post_init() # Call post_init to finalize setup
+    logger.info("Telegram Application is ready for webhooks.")
 
-        # Start Flask app
+
+def main() -> None:
+    """Starts the Flask app and sets up the bot."""
+    try:
+        # Run the bot application setup in an asyncio loop
+        # This will initialize the Application and set the webhook
+        import asyncio
+        asyncio.run(run_bot_application())
+        
+        # Start Flask app - it will now handle incoming webhooks
+        # Note: If running Flask with Gunicorn or similar, ensure it's configured
+        # to support async functions for the webhook endpoint (e.g., using a gevent worker).
+        # For simple 'flask run', it might require additional setup for async.
+        logger.info("Starting Flask application.")
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     except Exception as e:
-        logger.error(f"Error starting bot: {e}")
+        logger.error(f"Error starting main process: {e}")
         sys.exit(1)
 
 if __name__ == '__main__':
-    main() 
+    main()
