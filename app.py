@@ -4,7 +4,8 @@ import sys
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, TelegramError
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,6 +17,8 @@ from telegram.ext import (
 )
 from pyairtable import Api, Table
 from pyairtable.exceptions import AirtableError
+import requests
+from datetime import datetime, timezone
 
 # Load environment variables
 load_dotenv()
@@ -33,6 +36,22 @@ logger = logging.getLogger(__name__)
 
 # Initialize Flask app
 app = Flask(__name__)
+
+# Health check endpoint
+@app.route('/health')
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    })
+
+# Ping endpoint for keeping the service alive
+@app.route('/ping')
+def ping():
+    return jsonify({
+        'status': 'pong',
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    })
 
 # Validate required environment variables
 REQUIRED_ENV_VARS = [

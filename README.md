@@ -193,6 +193,49 @@ PORT=5000
    - If Airtable sync fails, verify your API key and base ID
    - If webhook fails, ensure your Render service is running
 
+3. Keeping the service alive on Render:
+   - Render's free tier puts services to sleep after 15 minutes of inactivity
+   - To prevent this, you can use one of these free services:
+
+   a) **UptimeRobot** (Recommended):
+      - Go to [UptimeRobot](https://uptimerobot.com/)
+      - Sign up for a free account
+      - Add a new monitor:
+        - Monitor Type: HTTP(s)
+        - Friendly Name: "Loophole Bot Ping"
+        - URL: Your Render URL + `/ping` (e.g., `https://your-app.onrender.com/ping`)
+        - Monitoring Interval: 5 minutes
+      - The free tier includes 50 monitors and 5-minute intervals
+
+   b) **Cron-job.org**:
+      - Go to [Cron-job.org](https://cron-job.org/)
+      - Sign up for a free account
+      - Create a new cronjob:
+        - URL: Your Render URL + `/ping`
+        - Schedule: Every 14 minutes
+        - Request Method: GET
+      - The free tier includes unlimited cronjobs
+
+   c) **Local Ping Service** (Alternative):
+      - If you prefer to run your own ping service:
+        ```bash
+        # Install the ping service requirements
+        pip install requests python-dotenv
+
+        # Run the ping service
+        python ping_service.py
+        ```
+      - The ping service will:
+        - Send a request to your bot every 14 minutes
+        - Log all ping attempts to `ping_service.log`
+        - Keep your bot active 24/7
+      - You can run this on:
+        - Your local machine
+        - A Raspberry Pi
+        - Another always-on server
+
+   > **Note**: UptimeRobot is recommended as it's reliable, free, and requires no setup on your part. It also provides monitoring and alerts if your service goes down.
+
 ## Development
 
 - Uses Flask for webhook handling
