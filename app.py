@@ -16,7 +16,6 @@ from telegram.ext import (
     filters,
 )
 from pyairtable import Api, Table
-from pyairtable.api.exceptions import AirtableError
 import requests
 from datetime import datetime, timezone
 
@@ -83,11 +82,8 @@ try:
     # Test the connection
     projects_table.all(limit=1)
     logger.info("Successfully connected to Airtable")
-except AirtableError as e:
-    logger.error(f"Failed to initialize Airtable: {e}")
-    sys.exit(1)
 except Exception as e:
-    logger.error(f"Unexpected error initializing Airtable: {e}")
+    logger.error(f"Failed to initialize Airtable: {e}")
     sys.exit(1)
 
 # Conversation states for new project
@@ -141,11 +137,8 @@ async def get_user_projects(user_id: str) -> List[Dict[str, Any]]:
     try:
         formula = f"{{Owner Telegram ID}}='{user_id}'"
         return projects_table.all(formula=formula)
-    except AirtableError as e:
-        logger.error(f"Error fetching user projects: {e}")
-        return []
     except Exception as e:
-        logger.error(f"Unexpected error fetching user projects: {e}")
+        logger.error(f"Error fetching user projects: {e}")
         return []
 
 async def get_project_updates(project_id: str) -> List[Dict[str, Any]]:
@@ -153,11 +146,8 @@ async def get_project_updates(project_id: str) -> List[Dict[str, Any]]:
     try:
         formula = f"{{Project}}='{project_id}'"
         return updates_table.all(formula=formula, sort=[{"field": "Timestamp", "direction": "desc"}])
-    except AirtableError as e:
-        logger.error(f"Error fetching project updates: {e}")
-        return []
     except Exception as e:
-        logger.error(f"Unexpected error fetching project updates: {e}")
+        logger.error(f"Error fetching project updates: {e}")
         return []
 
 async def format_project_summary(project: Dict[str, Any]) -> str:
@@ -414,7 +404,7 @@ async def help_needed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                 "🎉 Your project has been created successfully!\n\n"
                 "You can use /myprojects to view your projects or /updateproject to log progress."
             )
-        except AirtableError as e:
+        except Exception as e:
             logger.error(f"Error saving project to Airtable: {e}")
             await update.message.reply_text(
                 "❌ Sorry, there was an error saving your project. Please try again later."
