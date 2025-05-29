@@ -16,10 +16,10 @@ from telegram.ext import (
     filters,
 )
 from pyairtable import Api, Table
-import requests
+# import requests # No longer needed for set_telegram_webhook
+import httpx      # Import httpx
 from datetime import datetime, timezone
-import asyncio # Keep asyncio import as it's used in run_bot_application
-import functools
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -591,21 +591,21 @@ def setup_bot_handlers(app_instance: Application) -> None:
     app_instance.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
 
 async def set_telegram_webhook(bot_token: str, webhook_url: str) -> None:
-    set_webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
+    set_webhook_url_tg = f"https://api.telegram.org/bot{bot_token}/setWebhook" # Renamed variable to avoid clash if requests was used elsewhere
+    logger.info(f"Attempting to set webhook to: {webhook_url}")
     try:
-        loop = asyncio.get_running_loop()
-
-        # Use functools.partial to pass arguments to the blocking function
-        blocking_call = functools.partial(requests.post, set_webhook_url, data={"url": webhook_url})
-
-        # Run the synchronous requests.post call in a thread pool executor
-        resp = await loop.run_in_executor(None, blocking_call) # None uses the default ThreadPoolExecutor
-        resp.raise_for_status() # Check for HTTP errors
-        logger.info(f"Set webhook response: {resp.text}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to set webhook: {e}")
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(set_webhook_url_tg, data={"url": webhook_url})
+            resp.raise_for_status()  # Raises an HTTPStatusError for 4xx/5xx responses
+            logger.info(f"Set webhook response: {resp.status_code} - {resp.text}")
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Failed to set webhook (HTTP Error): {e.response.status_code} - {e.response.text}",
+            exc_info=True
+        )
+    except httpx.RequestError as e: # Covers other request issues like network errors
+        logger.error(f"Failed to set webhook (Request Error): {e}", exc_info=True)
     except Exception as e:
-        # Add exc_info=True for a full traceback of this unexpected error
         logger.error(f"An unexpected error occurred while setting webhook: {e}", exc_info=True)
 
 # --- NEW: Function to initialize the bot application per worker ---
