@@ -926,7 +926,7 @@ async def initialize_telegram_bot_for_worker():
         logger.critical(f"[Worker {worker_pid}] Failed during initialize_telegram_bot_for_worker: {e}", exc_info=True)
         application = None # Ensure application is None if initialization failed pathway
         raise # Re-raise the exception to be handled by the caller (e.g., on_worker_boot)
-
+    pass
 
 # --- Gunicorn Worker Setup (Hook into Gunicorn's lifecycle) ---
 def on_starting(server, worker):
@@ -972,21 +972,27 @@ def worker_abort(worker):
 
 
 # --- Gunicorn Worker Setup (Hook into Gunicorn's lifecycle) ---
-def on_worker_boot(worker): # Gunicorn passes the worker object
-    logger.info(f"Gunicorn worker {worker.pid} booting. Initializing Telegram Application.")
+def on_worker_boot(worker):
+    # This log helps confirm the hook is being entered by Gunicorn.
+    logger.info(f"APP_HOOK_LOG: on_worker_boot triggered for worker PID {worker.pid}.")
     try:
         asyncio.run(initialize_telegram_bot_for_worker())
-        # Check if application was set globally after the async call
+        # Check if the global 'application' was actually set by the async function
         if application is None:
-            logger.critical(f"Worker {worker.pid}: initialize_telegram_bot_for_worker completed but global 'application' is still None. This indicates a serious issue.")
-            # Potentially raise to make Gunicorn restart worker, as it's not healthy.
-            raise RuntimeError(f"Worker {worker.pid}: Failed to set global application object.")
-        logger.info(f"Gunicorn worker {worker.pid} finished Telegram Application initialization.")
+            logger.critical(
+                f"APP_HOOK_LOG: Worker PID {worker.pid} - initialize_telegram_bot_for_worker completed, "
+                "but global 'application' is STILL None. This is a critical failure in worker setup."
+            )
+            # Raising an exception here will cause Gunicorn to consider this worker boot failed.
+            raise RuntimeError(f"Worker PID {worker.pid}: Global 'application' object not set after initialization.")
+        else:
+            logger.info(
+                f"APP_HOOK_LOG: Worker PID {worker.pid} - Global 'application' object successfully set in on_worker_boot."
+            )
+        logger.info(f"APP_HOOK_LOG: on_worker_boot completed successfully for worker PID {worker.pid}.")
     except Exception as e:
-        # Logged within initialize_telegram_bot_for_worker, but also log context here.
-        logger.critical(f"Gunicorn worker {worker.pid} failed to initialize Telegram Application: {e}", exc_info=True)
-        # Re-raise to signal Gunicorn that this worker failed to boot properly.
-        # Gunicorn should then handle this, e.g., by attempting to restart the worker.
+        logger.critical(f"APP_HOOK_LOG: EXCEPTION in on_worker_boot for worker PID {worker.pid}: {e}", exc_info=True)
+        # Re-raise the exception so Gunicorn knows the worker failed to boot.
         raise
 
 # --- Main entry point (unchanged from your previous good version) ---
