@@ -19,6 +19,7 @@ from pyairtable import Api, Table
 import requests
 from datetime import datetime, timezone
 import asyncio # Keep asyncio import as it's used in run_bot_application
+import functools
 
 # Configure logging
 logging.basicConfig(
@@ -590,17 +591,22 @@ def setup_bot_handlers(app_instance: Application) -> None:
     app_instance.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
 
 async def set_telegram_webhook(bot_token: str, webhook_url: str) -> None:
-    # ... (same as before)
     set_webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
     try:
-        resp = requests.post(set_webhook_url, data={"url": webhook_url})
-        resp.raise_for_status()
+        loop = asyncio.get_running_loop()
+
+        # Use functools.partial to pass arguments to the blocking function
+        blocking_call = functools.partial(requests.post, set_webhook_url, data={"url": webhook_url})
+
+        # Run the synchronous requests.post call in a thread pool executor
+        resp = await loop.run_in_executor(None, blocking_call) # None uses the default ThreadPoolExecutor
+        resp.raise_for_status() # Check for HTTP errors
         logger.info(f"Set webhook response: {resp.text}")
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to set webhook: {e}")
     except Exception as e:
-        logger.error(f"An unexpected error occurred while setting webhook: {e}")
-
+        # Add exc_info=True for a full traceback of this unexpected error
+        logger.error(f"An unexpected error occurred while setting webhook: {e}", exc_info=True)
 
 # --- NEW: Function to initialize the bot application per worker ---
 async def initialize_telegram_bot_for_worker():
