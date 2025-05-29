@@ -16,7 +16,7 @@ from telegram.ext import (
     filters,
 )
 from pyairtable import Api, Table
-from pyairtable.exceptions import AirtableError
+from pyairtable.api.exceptions import AirtableError
 import requests
 from datetime import datetime, timezone
 
