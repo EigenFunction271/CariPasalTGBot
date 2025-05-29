@@ -66,7 +66,7 @@ def ping():
 @app.route('/', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.update_queue.put(update)
+    application.process_update(update)
     return 'ok', 200
 
 # Validate required environment variables
