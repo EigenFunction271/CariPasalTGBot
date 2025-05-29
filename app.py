@@ -610,32 +610,31 @@ async def set_telegram_webhook(bot_token: str, webhook_url: str) -> None:
 
 # --- NEW: Function to initialize the bot application per worker ---
 async def initialize_telegram_bot_for_worker():
-    """Initializes and runs the Telegram bot application for a Gunicorn worker."""
-    global application # Declare global to modify the top-level application variable
+    global application
     bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
     webhook_url = os.getenv('WEBHOOK_URL')
 
     if not bot_token or not webhook_url:
         logger.error("TELEGRAM_BOT_TOKEN or WEBHOOK_URL not set; cannot initialize bot application.")
-        # Do NOT sys.exit() here in a worker, let it fail gracefully.
         return
 
-    # Initialize the Application properly
+    # POINT OF CREATION
     application = Application.builder().token(bot_token).build()
     
-    # Set up handlers
-    setup_bot_handlers(application)
+    setup_bot_handlers(application) # This call might be an issue if application isn't fully 'ready'
+                                   # or if it modifies 'application' in a way that breaks post_init.
 
-    # Set the webhook (only once per deployment, ideally, but idempotent call is fine)
-    # This might be redundant for every worker, but Telegram handles idempotent setWebhook calls.
-    # The more crucial part is to ensure the `application` object is ready.
-    await set_telegram_webhook(bot_token, webhook_url)
+    await set_telegram_webhook(bot_token, webhook_url) # Now succeeding
     
-    # This prepares the application to process updates received via webhooks.
-    # It ensures the internal state of `Application` is correctly set up.
-    await application.post_init()
-    logger.info("Telegram Application is ready for webhooks in this worker.")
+    # POINT OF FAILURE
+    if application and hasattr(application, 'post_init') and callable(application.post_init):
+        await application.post_init()
+        logger.info("Telegram Application is ready for webhooks in this worker after post_init.")
+    else:
+        logger.error(f"Application object or post_init is not correctly set up before calling post_init. Application: {application}, post_init: {getattr(application, 'post_init', 'Not Found')}")
+        # This else block is new for debugging
 
+        
 # --- Gunicorn Worker Setup (Hook into Gunicorn's lifecycle) ---
 def on_starting(server, worker):
     """
