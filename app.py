@@ -607,8 +607,20 @@ def main() -> None:
         application.add_handler(CommandHandler("myprojects", myprojects))
         application.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
 
-        # Do not start polling or webhook here; Flask will handle incoming requests
-        # Just start Flask app
+        # Automatically set the Telegram webhook
+        webhook_url = os.getenv('WEBHOOK_URL')
+        bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        if webhook_url and bot_token:
+            set_webhook_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
+            try:
+                resp = requests.post(set_webhook_url, data={"url": webhook_url})
+                logger.info(f"Set webhook response: {resp.text}")
+            except Exception as e:
+                logger.error(f"Failed to set webhook: {e}")
+        else:
+            logger.warning("WEBHOOK_URL or TELEGRAM_BOT_TOKEN not set; skipping webhook setup.")
+
+        # Start Flask app
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
