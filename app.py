@@ -37,7 +37,7 @@ app = Flask(__name__)
 # Validate required environment variables
 REQUIRED_ENV_VARS = [
     'TELEGRAM_BOT_TOKEN',
-    'AIRTABLE_API_KEY',
+    'AIRTABLE_API_KEY',  # This will be a Personal Access Token
     'AIRTABLE_BASE_ID',
     'WEBHOOK_URL'
 ]
@@ -47,14 +47,28 @@ if missing_vars:
     logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
     sys.exit(1)
 
+# Validate Airtable token format
+airtable_token = os.getenv('AIRTABLE_API_KEY', '')
+if not airtable_token.startswith('pat'):
+    logger.error("Invalid Airtable token format. Personal Access Tokens should start with 'pat'")
+    sys.exit(1)
+
 # Initialize Airtable
 try:
-    airtable = Api(os.getenv('AIRTABLE_API_KEY'))
+    # The token is now a Personal Access Token, but the API usage remains the same
+    airtable = Api(airtable_token)
     base = airtable.base(os.getenv('AIRTABLE_BASE_ID'))
     projects_table = base.table('Projects')
     updates_table = base.table('Updates')
+    
+    # Test the connection
+    projects_table.all(limit=1)
+    logger.info("Successfully connected to Airtable")
 except AirtableError as e:
     logger.error(f"Failed to initialize Airtable: {e}")
+    sys.exit(1)
+except Exception as e:
+    logger.error(f"Unexpected error initializing Airtable: {e}")
     sys.exit(1)
 
 # Conversation states for new project
