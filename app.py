@@ -18,6 +18,7 @@ from telegram.ext import (
 from pyairtable import Api, Table
 import requests
 from datetime import datetime, timezone
+import asyncio
 
 # Configure logging
 logging.basicConfig(
@@ -66,7 +67,7 @@ def ping():
 @app.route('/', methods=['POST'])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.process_update(update)
+    asyncio.run(application.process_update(update))
     return 'ok', 200
 
 # Validate required environment variables
