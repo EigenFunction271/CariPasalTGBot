@@ -22,6 +22,13 @@ from datetime import datetime, timezone
 # Load environment variables
 load_dotenv()
 
+# Debug logging for environment variables
+logger.info("Environment Variables Check:")
+logger.info(f"AIRTABLE_API_KEY present: {'AIRTABLE_API_KEY' in os.environ}")
+logger.info(f"AIRTABLE_BASE_ID present: {'AIRTABLE_BASE_ID' in os.environ}")
+logger.info(f"TELEGRAM_BOT_TOKEN present: {'TELEGRAM_BOT_TOKEN' in os.environ}")
+logger.info(f"WEBHOOK_URL present: {'WEBHOOK_URL' in os.environ}")
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -76,14 +83,22 @@ try:
     # The token is now a Personal Access Token, but the API usage remains the same
     airtable = Api(airtable_token)
     base = airtable.base(os.getenv('AIRTABLE_BASE_ID'))
-    projects_table = base.table('Projects')
+    projects_table = base.table('Ongoing projects')
     updates_table = base.table('Updates')
     
-    # Test the connection
-    projects_table.all(limit=1)
-    logger.info("Successfully connected to Airtable")
+    # Test the connection with more detailed error handling
+    try:
+        test_result = projects_table.all(limit=1)
+        logger.info("Successfully connected to Airtable")
+        logger.info(f"Found table: {projects_table.name}")
+    except Exception as e:
+        logger.error(f"Airtable connection test failed: {str(e)}")
+        logger.error(f"API Key format: {airtable_token[:4]}...{airtable_token[-4:]}")
+        logger.error(f"Base ID: {os.getenv('AIRTABLE_BASE_ID')}")
+        raise
 except Exception as e:
     logger.error(f"Failed to initialize Airtable: {e}")
+    logger.error("Please check your AIRTABLE_API_KEY and AIRTABLE_BASE_ID environment variables")
     sys.exit(1)
 
 # Conversation states for new project
