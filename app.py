@@ -59,6 +59,15 @@ def ping():
         'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
+# Telegram webhook endpoint
+@app.route('/', methods=['POST'])
+def telegram_webhook():
+    if request.method == "POST":
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        application.update_queue.put(update)
+        return 'ok', 200
+    return 'Method Not Allowed', 405
+
 # Validate required environment variables
 REQUIRED_ENV_VARS = [
     'TELEGRAM_BOT_TOKEN',
@@ -559,6 +568,7 @@ def main() -> None:
     """Start the bot."""
     try:
         # Create the Application
+        global application
         application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
 
         # Add error handler
@@ -600,12 +610,9 @@ def main() -> None:
         application.add_handler(CommandHandler("myprojects", myprojects))
         application.add_handler(CallbackQueryHandler(handle_project_callback, pattern=f"^{VIEW_PREFIX}"))
 
-        # Start the webhook
-        application.run_webhook(
-            listen='0.0.0.0',
-            port=int(os.getenv('PORT', 5000)),
-            webhook_url=os.getenv('WEBHOOK_URL'),
-        )
+        # Do not start polling or webhook here; Flask will handle incoming requests
+        # Just start Flask app
+        app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         sys.exit(1)
