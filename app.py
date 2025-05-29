@@ -40,6 +40,9 @@ logger.info(f"AIRTABLE_BASE_ID present: {'AIRTABLE_BASE_ID' in os.environ}")
 logger.info(f"TELEGRAM_BOT_TOKEN present: {'TELEGRAM_BOT_TOKEN' in os.environ}")
 logger.info(f"WEBHOOK_URL present: {'WEBHOOK_URL' in os.environ}")
 
+# Create the Telegram Application object at the top level
+application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
+
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -62,11 +65,9 @@ def ping():
 # Telegram webhook endpoint
 @app.route('/', methods=['POST'])
 def telegram_webhook():
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        application.update_queue.put(update)
-        return 'ok', 200
-    return 'Method Not Allowed', 405
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put(update)
+    return 'ok', 200
 
 # Validate required environment variables
 REQUIRED_ENV_VARS = [
@@ -567,10 +568,6 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 def main() -> None:
     """Start the bot."""
     try:
-        # Create the Application
-        global application
-        application = Application.builder().token(os.getenv('TELEGRAM_BOT_TOKEN')).build()
-
         # Add error handler
         application.add_error_handler(error_handler)
 
