@@ -210,8 +210,8 @@ gunicorn -c gunicorn_config.py services.webhook_server.app:app
    - Configure the service:
      - Name: `loophole-project-tracker-bot`
      - Environment: `Python 3`
-     - Build Command: `pip install -r requirements.txt`
-     - Start Command: `cd services/telegram_bot && python bot.py`
+     - Build Command: `pip install -e . && pip install -r requirements.txt`
+     - Start Command: `python -m services.telegram_bot.bot`
      - Plan: Free (or your preferred plan)
    - Add Environment Variables:
      - `TELEGRAM_BOT_TOKEN`
@@ -226,7 +226,7 @@ gunicorn -c gunicorn_config.py services.webhook_server.app:app
    - Configure the service:
      - Name: `loophole-project-tracker-webhook`
      - Environment: `Python 3`
-     - Build Command: `pip install -r requirements.txt`
+     - Build Command: `pip install -e . && pip install -r requirements.txt`
      - Start Command: `gunicorn -c services/webhook_server/gunicorn_config.py services.webhook_server.app:app`
      - Plan: Free (or your preferred plan)
    - Add Environment Variables:

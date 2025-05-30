@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Dict, Any, List, Optional
 from pyairtable import Api, Table
-from utils.constants import logger
+from services.telegram_bot.utils.constants import logger
 
 # --- Airtable Configuration & Validation ---
 REQUIRED_ENV_VARS = [
