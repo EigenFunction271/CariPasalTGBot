@@ -88,61 +88,9 @@ if missing_vars:
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
 
-# Initialize Airtable client
-try:
-    airtable_api = Api(TELEGRAM_BOT_TOKEN)
-    airtable_base = airtable_api.base(projects_table.base_id) # Type: Base
-    projects_table: Table = airtable_base.table('Ongoing projects')
-    updates_table: Table = airtable_base.table('Updates')
-    projects_table.all(max_records=1) # Test connection by attempting a harmless read
-    logger.info("Successfully connected to Airtable and verified table access.")
-except Exception as e:
-    critical_message = f"CRITICAL STARTUP FAILURE: Failed to initialize Airtable client or access tables: {e}"
-    logger.critical(critical_message, exc_info=True)
-    sys.exit(critical_message)
+# --- Airtable client initialization REMOVED: now handled in database.py ---
 
-# --- Constants for Conversation States & Callbacks ---
-(
-    PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK, GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED,
-) = range(7) # States for new project conversation
-
-(
-    SELECT_PROJECT, UPDATE_PROGRESS, UPDATE_BLOCKERS,
-) = range(7, 10) # States for update project conversation
-
-STATUS_OPTIONS = ['Idea', 'MVP', 'Launched'] # Project status options
-
-# Callback data prefixes - ensure they are distinct and descriptive
-UPDATE_PROJECT_PREFIX = "updateproject_"
-VIEW_PROJECT_PREFIX = "viewproject_"
-SELECT_PROJECT_PREFIX = "selectproject_" # For selecting a project to update
-
-# Max input lengths for validation
-MAX_PROJECT_NAME_LENGTH = 1000
-MAX_TAGLINE_LENGTH = 2500 # Increased slightly
-MAX_PROBLEM_STATEMENT_LENGTH = 5500 # Increased slightly
-MAX_TECH_STACK_LENGTH = 5000
-MAX_GITHUB_LINK_LENGTH = 300 # Increased slightly
-MAX_HELP_NEEDED_LENGTH = 7500 # Increased slightly
-MAX_UPDATE_LENGTH = 9000 # Increased
-MAX_BLOCKERS_LENGTH = 10000 # Increased
-
-# --- Custom Exceptions ---
-class ValidationError(Exception):
-    """Custom exception for input validation errors."""
-    pass
-
-# --- Helper Functions ---
-def validate_input_text(text: str, field_name: str, max_length: int, can_be_empty: bool = False) -> str:
-    """Validates text input: checks for emptiness (if not allowed) and max length."""
-    processed_text = text.strip() # Remove leading/trailing whitespace
-    if not can_be_empty and not processed_text:
-        raise ValidationError(f"{field_name} cannot be empty. Please provide some text.")
-    if len(processed_text) > max_length:
-        raise ValidationError(
-            f"{field_name} is too long. Max {max_length} characters allowed, you entered {len(processed_text)}."
-        )
-    return processed_text # Return stripped text
+# --- Removed redundant constants, ValidationError, and validate_input_text (now in constants.py) ---
 
 # --- Telegram Bot Command and Webhook Setup ---
 async def set_telegram_bot_commands(bot_instance: Application.bot_data) -> None: # Using Application.bot_data for Bot type
