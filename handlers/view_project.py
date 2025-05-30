@@ -1,6 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
-from app import get_user_projects_from_airtable, get_project_updates_from_airtable, format_project_summary_text, UPDATE_PROJECT_PREFIX
+from constants import UPDATE_PROJECT_PREFIX
+from app import get_user_projects_from_airtable, get_project_updates_from_airtable, format_project_summary_text
 
 async def handle_project_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query

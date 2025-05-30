@@ -22,6 +22,12 @@ import httpx # Modern HTTP client, used by PTB and for direct calls
 from datetime import datetime, timezone # For timestamps
 import asyncio # For async operations and Lock
 
+from constants import (
+    logger, PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK, 
+    GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED, SELECT_PROJECT, UPDATE_PROGRESS, 
+    UPDATE_BLOCKERS, STATUS_OPTIONS, UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX, 
+    SELECT_PROJECT_PREFIX
+)
 from handlers.new_project import (
     newproject_entry_point, project_name_state, project_tagline_state,
     problem_statement_state, tech_stack_state, github_link_state,

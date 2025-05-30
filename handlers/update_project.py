@@ -1,9 +1,10 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from app import (
+from constants import (
     SELECT_PROJECT, UPDATE_PROGRESS, UPDATE_BLOCKERS,
-    get_user_projects_from_airtable, get_project_updates_from_airtable, updates_table, logger
+    logger
 )
+from app import get_user_projects_from_airtable, get_project_updates_from_airtable, updates_table
 
 async def handle_project_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
