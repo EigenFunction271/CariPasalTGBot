@@ -202,6 +202,21 @@ python -m flask --app app.py run --port 10000
 
 ### 6. Deployment on Render
 
+> **Important**: Make sure your repository structure matches exactly:
+> ```
+> .
+> ├── services/
+> │   ├── telegram_bot/
+> │   │   ├── bot.py
+> │   │   └── handlers/
+> │   └── webhook_server/
+> │       ├── app.py
+> │       └── gunicorn_config.py
+> ├── utils/
+> ├── requirements.txt
+> └── README.md
+> ```
+
 1. Create a new Web Service for the Bot:
    - Go to [Render Dashboard](https://dashboard.render.com)
    - Click "New +" and select "Web Service"
@@ -210,7 +225,7 @@ python -m flask --app app.py run --port 10000
      - Name: `loophole-project-tracker-bot`
      - Environment: `Python 3`
      - Build Command: `pip install -r requirements.txt`
-     - Start Command: `cd services/telegram_bot && python bot.py`
+     - Start Command: `python -m services.telegram_bot.bot`  # Using Python module syntax
      - Plan: Free (or your preferred plan)
    - Add Environment Variables:
      - `TELEGRAM_BOT_TOKEN`
@@ -226,7 +241,7 @@ python -m flask --app app.py run --port 10000
      - Name: `loophole-project-tracker-webhook`
      - Environment: `Python 3`
      - Build Command: `pip install -r requirements.txt`
-     - Start Command: `cd services/webhook_server && gunicorn -c gunicorn_config.py app:app`
+     - Start Command: `gunicorn -c services/webhook_server/gunicorn_config.py services.webhook_server.app:app`  # Using Python module syntax
      - Plan: Free (or your preferred plan)
    - Add Environment Variables:
      - `TELEGRAM_BOT_TOKEN`
