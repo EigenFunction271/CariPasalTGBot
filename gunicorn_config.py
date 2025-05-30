@@ -23,3 +23,5 @@ print(f"GUNICORN_CONFIG: Loaded. Settings: bind='{bind}', worker_class='{worker_
 # but it's often cleaner to keep them in app.py if Gunicorn finds them.
 # Example of how you might re-export if needed, or define them here:
 # from app import on_worker_boot # Ensure app.py doesn't cause circular imports or premature loads
+
+print(f"GUNICORN_CONFIG: os.environ['PORT'] = {os.environ.get('PORT')}")
