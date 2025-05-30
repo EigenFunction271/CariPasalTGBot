@@ -42,5 +42,5 @@ def telegram_webhook():
         return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))
+    port = int(os.getenv('PORT', 10001))  # Default to 10001 if PORT not set
     app.run(host='0.0.0.0', port=port) 

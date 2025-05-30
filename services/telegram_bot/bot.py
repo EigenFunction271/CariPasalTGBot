@@ -157,7 +157,7 @@ async def main() -> None:
         await application.start()
         await application.run_webhook(
             listen='0.0.0.0',
-            port=int(os.getenv('PORT', 10000)),
+            port=int(os.getenv('PORT', 10001)),  # Default to 10001 for bot service
             webhook_url=os.getenv('WEBHOOK_URL')
         )
 
