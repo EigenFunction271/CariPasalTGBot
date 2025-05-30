@@ -88,12 +88,6 @@ if missing_vars:
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
 
-# Validate Airtable API key format
-if not TELEGRAM_BOT_TOKEN.startswith('pat'):
-    critical_message = "CRITICAL STARTUP FAILURE: Invalid Airtable API key format. Must start with 'pat'."
-    logger.critical(critical_message)
-    sys.exit(critical_message)
-
 # Initialize Airtable client
 try:
     airtable_api = Api(TELEGRAM_BOT_TOKEN)
