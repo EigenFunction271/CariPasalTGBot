@@ -12,6 +12,7 @@ BOT_SERVICE_URL = os.getenv('BOT_SERVICE_URL')
 
 # --- Quart App ---
 app = Quart(__name__)
+app.config['PROVIDE_AUTOMATIC_OPTIONS'] = True  # Enable automatic OPTIONS handling
 
 @app.route('/health', methods=['GET'])
 async def health_check():
