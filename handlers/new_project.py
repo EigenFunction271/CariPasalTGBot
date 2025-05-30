@@ -1,5 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
+import asyncio
 from constants import (
     PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK, GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED,
     STATUS_OPTIONS, MAX_PROJECT_NAME_LENGTH, MAX_TAGLINE_LENGTH, MAX_PROBLEM_STATEMENT_LENGTH, MAX_TECH_STACK_LENGTH, MAX_GITHUB_LINK_LENGTH, MAX_HELP_NEEDED_LENGTH,
@@ -16,10 +17,17 @@ async def project_name_state(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         name = validate_input_text(update.message.text, "Project name", MAX_PROJECT_NAME_LENGTH)
         context.user_data['project_name'] = name
+        current_loop = asyncio.get_event_loop()
+        logger.info(f"PROJECT_NAME_STATE: Current loop: {current_loop}, is_closed: {current_loop.is_closed()}, is_running: {current_loop.is_running()}")
+
         await update.message.reply_text("Great! Now, give me a one-liner tagline for your project:")
         return PROJECT_TAGLINE
     except Exception as e:
-        await update.message.reply_text(str(e))
+        current_loop_on_exc = asyncio.get_event_loop()
+        logger.error(
+            f"PROJECT_NAME_STATE: Error: {e}. Loop: {current_loop_on_exc}, is_closed: {current_loop_on_exc.is_closed()}, is_running: {current_loop_on_exc.is_running()}", 
+            exc_info=True
+        )
         return PROJECT_NAME
 
 async def project_tagline_state(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
