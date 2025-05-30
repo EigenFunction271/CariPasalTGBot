@@ -1,12 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler
 import asyncio
-from ..utils.constants import (
+from services.telegram_bot.utils.constants import (
     PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK, GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED,
     STATUS_OPTIONS, MAX_PROJECT_NAME_LENGTH, MAX_TAGLINE_LENGTH, MAX_PROBLEM_STATEMENT_LENGTH, MAX_TECH_STACK_LENGTH, MAX_GITHUB_LINK_LENGTH, MAX_HELP_NEEDED_LENGTH,
     validate_input_text, logger
 )
-from ..utils.database import projects_table
+from services.telegram_bot.utils.database import projects_table
 
 async def newproject_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Entry point for /newproject command."""

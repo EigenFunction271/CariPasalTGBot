@@ -14,21 +14,21 @@ from telegram.ext import (
 )
 
 # Import handlers
-from handlers.new_project import (
+from services.telegram_bot.handlers.new_project import (
     newproject_entry_point, project_name_state, project_tagline_state,
     problem_statement_state, tech_stack_state, github_link_state,
     project_status_state_callback, help_needed_state, cancel_conversation
 )
-from handlers.update_project import (
+from services.telegram_bot.handlers.update_project import (
     handle_project_action_callback as update_project_action_callback,
     update_progress_state, update_blockers_state,
     select_project_for_update
 )
-from handlers.myprojects import my_projects_command
-from handlers.view_project import handle_project_action_callback as view_project_action_callback
+from services.telegram_bot.handlers.myprojects import my_projects_command
+from services.telegram_bot.handlers.view_project import handle_project_action_callback as view_project_action_callback
 
 # Import constants and database from utils
-from .utils.constants import (
+from services.telegram_bot.utils.constants import (
     PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK,
     GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED, SELECT_PROJECT,
     UPDATE_PROGRESS, UPDATE_BLOCKERS, STATUS_OPTIONS,
