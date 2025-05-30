@@ -39,7 +39,7 @@ from handlers.new_project import (
 from handlers.update_project import (
     handle_project_action_callback as update_project_action_callback, # Renamed to avoid clash
     update_progress_state, update_blockers_state,
-    select_project_for_update_state # Assuming this is the correct name from your file
+    select_project_for_update
 )
 from handlers.myprojects import my_projects_command
 from handlers.view_project import handle_project_action_callback as view_project_action_callback
@@ -171,7 +171,7 @@ def setup_all_bot_handlers(ptb_application: Application) -> None:
         ],
         states={
             # State for selecting a project if update_project_action_callback leads here
-            SELECT_PROJECT: [CallbackQueryHandler(select_project_for_update_state, pattern=f"^{SELECT_PROJECT_PREFIX}")],
+            SELECT_PROJECT: [CallbackQueryHandler(select_project_for_update, pattern=f"^{SELECT_PROJECT_PREFIX}")],
             UPDATE_PROGRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_progress_state)],
             UPDATE_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_blockers_state)],
         },
