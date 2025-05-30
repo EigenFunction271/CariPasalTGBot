@@ -1,4 +1,4 @@
-# constants.py
+# utils/constants.py
 import os
 import logging
 import sys

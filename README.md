@@ -12,19 +12,25 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 
 ```
 .
-├── app.py              # Main Flask application and Telegram bot setup
-├── constants.py        # Shared constants, logging config, and utilities
-├── gunicorn_config.py  # Gunicorn server configuration
-├── ping_service.py     # Service to keep the bot alive on Render
-├── requirements.txt    # Python dependencies
-├── handlers/          # Telegram bot command handlers
-│   ├── myprojects.py  # /myprojects command handler
-│   ├── new_project.py # /newproject command handler
-│   ├── update_project.py # /updateproject command handler
-│   └── view_project.py # Project viewing functionality
-└── documentation/     # Project documentation
-    ├── prd.md        # Product Requirements Document
-    └── todo.md       # Development TODO list
+├── utils/                    # Shared utilities
+│   ├── __init__.py
+│   ├── constants.py         # Shared constants and logging config
+│   └── database.py          # Airtable integration
+├── services/                # Split services
+│   ├── telegram_bot/        # Bot service
+│   │   ├── bot.py          # Main bot logic
+│   │   └── handlers/       # Command handlers
+│   │       ├── myprojects.py
+│   │       ├── new_project.py
+│   │       ├── update_project.py
+│   │       └── view_project.py
+│   └── webhook_server/      # Webhook service
+│       ├── app.py          # Flask webhook server
+│       └── gunicorn_config.py
+├── requirements.txt         # Project dependencies
+└── documentation/          # Project documentation
+    ├── prd.md             # Product Requirements Document
+    └── testing_plan.md    # Testing documentation
 ```
 
 ## Prerequisites
@@ -36,26 +42,7 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 
 ## Setup Guide
 
-### 1. Local Development Setup
-
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd loophole-project-tracker
-   ```
-
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### 2. Telegram Bot Setup
+### 1. Telegram Bot Setup
 
 1. Open Telegram and search for [@BotFather](https://t.me/botfather)
 2. Start a chat and send `/newbot`
@@ -64,7 +51,7 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    - Choose a username (must end in 'bot')
 4. BotFather will give you a token. Save this for later.
 
-### 3. Airtable Setup
+### 2. Airtable Setup
 
 1. Create a new Airtable base
 2. Create two tables:
@@ -132,43 +119,82 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    - If successful, you'll see a JSON response with your tables
    - If you get an error, double-check your token and base ID
 
-### 4. Webhook Setup
+### 3. Local Development Setup
 
-1. For local development, you'll need a public URL. You can use [ngrok](https://ngrok.com/):
+1. Clone the repository:
    ```bash
-   # Install ngrok
-   # Then run:
-   ngrok http 5000
+   git clone <repository-url>
+   cd loophole-project-tracker
    ```
-   This will give you output like:
+
+2. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-   Forwarding    https://xxxx-xx-xx-xxx-xx.ngrok-free.app -> http://localhost:5000
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
    ```
-   Use the `https://xxxx-xx-xx-xxx-xx.ngrok-free.app` URL as your `WEBHOOK_URL` in the `.env` file.
 
-2. For production, you'll use your Render URL (see Deployment section)
+4. Create a `.env` file in the project root:
+   ```env
+   # Bot Service
+   TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
+   USE_LONG_POLLING=true  # Set to false when using webhook
+   PORT=10001  # Bot service port
 
-### 5. Environment Variables
+   # Webhook Server
+   BOT_SERVICE_URL=http://localhost:10001  # URL of bot service
+   WEBHOOK_PORT=10000  # Webhook server port
 
-Create a `.env` file in the project root:
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-AIRTABLE_API_KEY=your_airtable_personal_access_token
-AIRTABLE_BASE_ID=your_airtable_base_id
-WEBHOOK_URL=your_webhook_url
-PORT=5000
+   # Airtable
+   AIRTABLE_API_KEY=your_airtable_personal_access_token
+   AIRTABLE_BASE_ID=your_airtable_base_id
+   ```
+
+### 4. Running the Services Locally
+
+#### Bot Service
+```bash
+cd services/telegram_bot
+python bot.py
 ```
 
-> **Note**: The `AIRTABLE_API_KEY` environment variable name remains the same for compatibility, but it should contain your Personal Access Token, not an API key.
+#### Webhook Server
+```bash
+cd services/webhook_server
+python -m flask --app app.py run --port 10000
+```
 
-### 5. Local Testing
+### 5. Local Testing with Webhooks
 
-1. Start the bot:
+1. Install ngrok:
    ```bash
-   python app.py
+   # Windows (with scoop)
+   scoop install ngrok
+   
+   # macOS (with homebrew)
+   brew install ngrok
+   
+   # Linux
+   snap install ngrok
    ```
 
-2. Test the bot:
+2. Start ngrok:
+   ```bash
+   ngrok http 10000
+   ```
+
+3. Copy the HTTPS URL (e.g., `https://xxxx-xx-xx-xxx-xx.ngrok-free.app`)
+
+4. Set up the webhook:
+   ```
+   https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=<NGROK_URL>
+   ```
+
+5. Test the bot:
    - Open Telegram
    - Search for your bot
    - Start a chat
@@ -176,104 +202,85 @@ PORT=5000
 
 ### 6. Deployment on Render
 
-1. Create a new Web Service on Render:
+1. Create a new Web Service for the Bot:
    - Go to [Render Dashboard](https://dashboard.render.com)
    - Click "New +" and select "Web Service"
    - Connect your GitHub repository
+   - Configure the service:
+     - Name: `loophole-project-tracker-bot`
+     - Environment: `Python 3`
+     - Build Command: `pip install -r requirements.txt`
+     - Start Command: `cd services/telegram_bot && python bot.py`
+     - Plan: Free (or your preferred plan)
+   - Add Environment Variables:
+     - `TELEGRAM_BOT_TOKEN`
+     - `USE_LONG_POLLING=false`
+     - `PORT=10001`
+     - `AIRTABLE_API_KEY`
+     - `AIRTABLE_BASE_ID`
 
-2. Configure the service:
-   - Name: `loophole-project-tracker` (or your preferred name)
-   - Environment: `Python 3`
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn -c gunicorn_config.py app:app`
-   - Plan: Free (or your preferred plan)
+2. Create another Web Service for the Webhook Server:
+   - Click "New +" and select "Web Service"
+   - Connect the same GitHub repository
+   - Configure the service:
+     - Name: `loophole-project-tracker-webhook`
+     - Environment: `Python 3`
+     - Build Command: `pip install -r requirements.txt`
+     - Start Command: `cd services/webhook_server && gunicorn -c gunicorn_config.py app:app`
+     - Plan: Free (or your preferred plan)
+   - Add Environment Variables:
+     - `TELEGRAM_BOT_TOKEN`
+     - `BOT_SERVICE_URL=https://loophole-project-tracker-bot.onrender.com`
+     - `PORT=10000`
 
-3. Add Environment Variables:
-   - Go to the "Environment" tab
-   - Add all variables from your `.env` file
-   - For `WEBHOOK_URL`, use your Render URL: `https://your-app-name.onrender.com`
+3. Set up the webhook:
+   - Once both services are deployed, set up the webhook:
+   ```
+   https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://loophole-project-tracker-webhook.onrender.com
+   ```
 
-4. Deploy:
-   - Click "Create Web Service"
-   - Wait for the first deployment to complete
+4. Keep the services alive:
+   - Render's free tier puts services to sleep after 15 minutes of inactivity
+   - Use [UptimeRobot](https://uptimerobot.com/) to ping the webhook server:
+     - Monitor Type: HTTP(s)
+     - URL: `https://loophole-project-tracker-webhook.onrender.com/health`
+     - Monitoring Interval: 5 minutes
 
-5. Set up the webhook:
-   - Once deployed, your bot will be available at your Render URL
-   - The webhook will be automatically set up when the bot starts
-
-The free tier of Render puts services to sleep after 15 minutes of inactivity. To prevent this, you can use one of these methods:
+### 7. Monitoring and Maintenance
 
 1. View logs:
    - On Render: Go to your service → Logs
-   - Locally: Check `bot.log`
+   - Locally: Check `bot.log` and `webhook_server.log`
 
 2. Common issues:
-   - If the bot stops responding, check the logs
-   - If Airtable sync fails, verify your API key and base ID
-   - If webhook fails, ensure your Render service is running
-
-3. Keeping the service alive on Render:
-   - Render's free tier puts services to sleep after 15 minutes of inactivity
-   - To prevent this, you can use one of these free services:
-
-   a) **UptimeRobot** (Recommended):
-      - Go to [UptimeRobot](https://uptimerobot.com/)
-      - Sign up for a free account
-      - Add a new monitor:
-        - Monitor Type: HTTP(s)
-        - Friendly Name: "Loophole Bot Ping"
-        - URL: Your Render URL + `/ping` (e.g., `https://your-app.onrender.com/ping`)
-        - Monitoring Interval: 5 minutes
-      - The free tier includes 50 monitors and 5-minute intervals
-
-   b) **Cron-job.org**:
-      - Go to [Cron-job.org](https://cron-job.org/)
-      - Sign up for a free account
-      - Create a new cronjob:
-        - URL: Your Render URL + `/ping`
-        - Schedule: Every 14 minutes
-        - Request Method: GET
-      - The free tier includes unlimited cronjobs
-
-   c) **Local Ping Service** (Alternative):
-      - If you prefer to run your own ping service:
-        ```bash
-        # Install the ping service requirements
-        pip install requests python-dotenv
-
-        # Run the ping service
-        python ping_service.py
-        ```
-      - The ping service will:
-        - Send a request to your bot every 14 minutes
-        - Log all ping attempts to `ping_service.log`
-        - Keep your bot active 24/7
-      - You can run this on:
-        - Your local machine
-        - A Raspberry Pi
-        - Another always-on server
-
-   > **Note**: UptimeRobot is recommended as it's reliable, free, and requires no setup on your part. It also provides monitoring and alerts if your service goes down.
+   - If the bot stops responding:
+     - Check if both services are running
+     - Verify webhook URL is set correctly
+     - Check logs for errors
+   - If Airtable sync fails:
+     - Verify your Personal Access Token is valid
+     - Check if the base ID is correct
+     - Ensure tables are named correctly
+   - If webhook fails:
+     - Check if the webhook server is running
+     - Verify the bot service URL is correct
+     - Check if the services can communicate
 
 ## Development
 
 ### Code Structure
 
-- `app.py`: Main Flask application and Telegram bot setup
-- `constants.py`: Shared constants, logging configuration, and utility functions
-- `handlers/`: Telegram bot command handlers
-  - `myprojects.py`: Handles `/myprojects` command
-  - `new_project.py`: Handles `/newproject` command
-  - `update_project.py`: Handles `/updateproject` command
-  - `view_project.py`: Handles project viewing functionality
-- `gunicorn_config.py`: Gunicorn server configuration
-- `ping_service.py`: Service to keep the bot alive on Render
+- `utils/`: Shared utilities used by both services
+  - `constants.py`: Shared constants and logging configuration
+  - `database.py`: Airtable integration code
+- `services/`: Split services
+  - `telegram_bot/`: Bot service with command handlers
+  - `webhook_server/`: Webhook server for Telegram updates
 
 ### Key Features
 
-- Asynchronous request handling with gevent
-- Lazy initialization of Telegram bot instance
-- Graceful shutdown handling
+- Split architecture for better scalability
+- Asynchronous request handling
 - Comprehensive error logging
 - Input validation and sanitization
 - Modular command handler structure

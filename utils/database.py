@@ -1,9 +1,9 @@
-# database.py
+# utils/database.py
 import os
 import sys
 from typing import Dict, Any, List, Optional
 from pyairtable import Api, Table
-from constants import logger
+from utils.constants import logger
 
 # --- Airtable Configuration & Validation ---
 REQUIRED_ENV_VARS = [

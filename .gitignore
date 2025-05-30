@@ -27,6 +27,7 @@ ENV/
 
 # Environment Variables
 .env
+.env.*
 
 # IDE
 .idea/
@@ -35,4 +36,14 @@ ENV/
 *.swo
 
 # Logs
-*.log 
+*.log
+bot.log
+ping_service.log
+
+# Service-specific
+services/webhook_server/.env
+services/telegram_bot/.env
+
+# Local development
+*.db
+*.sqlite3 
