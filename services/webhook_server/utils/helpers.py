@@ -2,7 +2,7 @@ import os
 import asyncio
 import httpx
 from typing import Dict, Any, Optional
-from .constants import logger, MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT
+from .constants import logger, MAX_RETRIES, RETRY_DELAY, REQUEST_TIMEOUT, REQUIRED_ENV_VARS
 
 async def forward_to_bot_service(update: Dict[str, Any], bot_token: str, bot_service_url: str) -> Optional[httpx.Response]:
     """
