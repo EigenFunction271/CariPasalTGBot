@@ -4,6 +4,8 @@ import sys
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import httpx
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -28,6 +30,18 @@ if not BOT_SERVICE_URL:
 
 # --- Flask App ---
 app = Flask(__name__)
+executor = ThreadPoolExecutor(max_workers=4)
+
+async def forward_to_bot_service(update):
+    """Forward update to bot service asynchronously."""
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{BOT_SERVICE_URL}/webhook",
+            json=update,
+            headers={"X-Telegram-Bot-Token": TELEGRAM_BOT_TOKEN}
+        )
+        response.raise_for_status()
+        return response
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -35,7 +49,7 @@ def health_check():
     return jsonify({"status": "healthy"}), 200
 
 @app.route('/', methods=['POST'])
-async def telegram_webhook():
+def telegram_webhook():
     """Forward Telegram webhook updates to the bot service."""
     try:
         # Get the update from Telegram
@@ -46,17 +60,15 @@ async def telegram_webhook():
                  update.get('callback_query', {}).get('message', {}).get('chat', {}).get('id')
         logger.info(f"Received update for chat_id: {chat_id if chat_id else 'Unknown'}")
         
-        # Forward to bot service
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{BOT_SERVICE_URL}/webhook",
-                json=update,
-                headers={"X-Telegram-Bot-Token": TELEGRAM_BOT_TOKEN}
-            )
-            response.raise_for_status()
+        # Run async operation in event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            response = loop.run_until_complete(forward_to_bot_service(update))
+            return jsonify({"status": "ok"}), 200
+        finally:
+            loop.close()
             
-        return jsonify({"status": "ok"}), 200
-        
     except httpx.HTTPStatusError as e:
         logger.error(f"HTTP error forwarding to bot service: {e.response.status_code} - {e.response.text}")
         return jsonify({"status": "error", "message": "Error forwarding to bot service"}), 500

@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from utils.constants import UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX
-from utils.database import get_user_projects_from_airtable
+from ..utils.constants import UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX
+from ..utils.database import get_user_projects_from_airtable
 
 async def my_projects_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)

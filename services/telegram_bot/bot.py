@@ -28,7 +28,7 @@ from handlers.myprojects import my_projects_command
 from handlers.view_project import handle_project_action_callback as view_project_action_callback
 
 # Import constants and database from utils
-from utils.constants import (
+from .utils.constants import (
     PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK,
     GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED, SELECT_PROJECT,
     UPDATE_PROGRESS, UPDATE_BLOCKERS, STATUS_OPTIONS,
