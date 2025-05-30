@@ -152,19 +152,52 @@ async def main() -> None:
         await application.run_polling()
     else:
         logger.info("Starting bot with webhook...")
-        # Webhook setup will be handled by the webhook server
-        await application.initialize()
-        await application.start()
-        await application.run_webhook(
-            listen='0.0.0.0',
-            port=int(os.getenv('PORT', 10001)),  # Default to 10001 for bot service
-            webhook_url=os.getenv('WEBHOOK_URL')
-        )
+        try:
+            # Initialize and start the application
+            await application.initialize()
+            await application.start()
+            
+            # Run the webhook
+            await application.run_webhook(
+                listen='0.0.0.0',
+                port=int(os.getenv('PORT', 10001)),  # Default to 10001 for bot service
+                webhook_url=os.getenv('WEBHOOK_URL')
+            )
+        except Exception as e:
+            logger.error(f"Error during webhook setup: {e}", exc_info=True)
+            # Ensure proper cleanup
+            await application.stop()
+            raise
+        finally:
+            # Ensure proper cleanup
+            await application.stop()
+            await application.shutdown()
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        # Create and set the event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Run the main function
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.critical(f"Bot stopped due to error: {e}", exc_info=True) 
+        logger.critical(f"Bot stopped due to error: {e}", exc_info=True)
+    finally:
+        # Clean up the event loop
+        try:
+            # Cancel all running tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            
+            # Wait for all tasks to complete
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            
+            # Stop the loop
+            loop.stop()
+            loop.close()
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True) 

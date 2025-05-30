@@ -1,5 +1,5 @@
 python-telegram-bot==20.7
-Flask[async]==3.0.2
+quart==0.19.4  # Async Flask alternative
 pyairtable==2.3.0
 python-dotenv==1.0.1
 gunicorn==21.2.0
