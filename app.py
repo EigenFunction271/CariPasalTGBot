@@ -28,6 +28,10 @@ from constants import (
     UPDATE_BLOCKERS, STATUS_OPTIONS, UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX, 
     SELECT_PROJECT_PREFIX
 )
+from database import (
+    projects_table, updates_table, get_user_projects_from_airtable,
+    get_project_updates_from_airtable, format_project_summary_text
+)
 from handlers.new_project import (
     newproject_entry_point, project_name_state, project_tagline_state,
     problem_statement_state, tech_stack_state, github_link_state,
@@ -67,9 +71,7 @@ app = Flask(__name__)
 # Validate required environment variables first
 REQUIRED_ENV_VARS = [
     'TELEGRAM_BOT_TOKEN',
-    'AIRTABLE_API_KEY',
-    'AIRTABLE_BASE_ID',
-    'WEBHOOK_URL' # Needed for setting the webhook with Telegram
+    'WEBHOOK_URL'
 ]
 
 # Log presence of environment variables
@@ -83,21 +85,19 @@ if missing_vars:
     sys.exit(critical_message) # Exit if critical env vars are missing
 
 # Get validated environment variables
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '') # Default to empty to satisfy type checker if not found, but previous check ensures it exists
-AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY', '')
-AIRTABLE_BASE_ID = os.getenv('AIRTABLE_BASE_ID', '')
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
 
 # Validate Airtable API key format
-if not AIRTABLE_API_KEY.startswith('pat'):
+if not TELEGRAM_BOT_TOKEN.startswith('pat'):
     critical_message = "CRITICAL STARTUP FAILURE: Invalid Airtable API key format. Must start with 'pat'."
     logger.critical(critical_message)
     sys.exit(critical_message)
 
 # Initialize Airtable client
 try:
-    airtable_api = Api(AIRTABLE_API_KEY)
-    airtable_base = airtable_api.base(AIRTABLE_BASE_ID) # Type: Base
+    airtable_api = Api(TELEGRAM_BOT_TOKEN)
+    airtable_base = airtable_api.base(projects_table.base_id) # Type: Base
     projects_table: Table = airtable_base.table('Ongoing projects')
     updates_table: Table = airtable_base.table('Updates')
     projects_table.all(max_records=1) # Test connection by attempting a harmless read
@@ -149,44 +149,6 @@ def validate_input_text(text: str, field_name: str, max_length: int, can_be_empt
             f"{field_name} is too long. Max {max_length} characters allowed, you entered {len(processed_text)}."
         )
     return processed_text # Return stripped text
-
-async def get_user_projects_from_airtable(user_id: str) -> List[Dict[str, Any]]:
-    """Fetches all projects for a given Telegram user ID from Airtable."""
-    try:
-        formula = f"{{Owner Telegram ID}}='{user_id}'"
-        # Sort by project name for consistent display if desired
-        records = projects_table.all(formula=formula, sort=[{'field': 'Project Name', 'direction': 'asc'}])
-        logger.info(f"Fetched {len(records)} projects for user {user_id}.")
-        return records
-    except Exception as e:
-        logger.error(f"Airtable error fetching projects for User ID {user_id}: {e}", exc_info=True)
-        return []
-
-async def get_project_updates_from_airtable(project_airtable_id: str, limit: int = 3) -> List[Dict[str, Any]]:
-    """Fetches recent updates for a specific project ID from Airtable."""
-    try:
-        formula = f"{{Project}}='{project_airtable_id}'" # Assumes 'Project' is a linked record field
-        records = updates_table.all(formula=formula, sort=[{"field": "Timestamp", "direction": "desc"}], max_records=limit)
-        logger.info(f"Fetched {len(records)} updates for project {project_airtable_id}.")
-        return records
-    except Exception as e:
-        logger.error(f"Airtable error fetching updates for Project ID {project_airtable_id}: {e}", exc_info=True)
-        return []
-
-async def format_project_summary_text(project_fields: Dict[str, Any]) -> str:
-    """Formats a project's details into a readable string for Telegram messages."""
-    def get_field(name: str, default_value: str = "N/A") -> str:
-        return project_fields.get(name, default_value) or default_value # Treat empty string as N/A
-
-    summary = (
-        f"📋 *{get_field('Project Name')}*\n"
-        f"_{get_field('One-liner', 'No tagline provided.')}_\n\n"
-        f"*Status:* {get_field('Status')}\n"
-        f"*Tech Stack:* {get_field('Stack', 'Not specified.')}\n"
-        f"*Help Needed:* {get_field('Help Needed', 'None specified.')}\n"
-        f"*GitHub/Demo Link:* {get_field('GitHub/Demo', 'No link provided.')}"
-    )
-    return summary
 
 # --- Telegram Bot Command and Webhook Setup ---
 async def set_telegram_bot_commands(bot_instance: Application.bot_data) -> None: # Using Application.bot_data for Bot type
@@ -290,7 +252,7 @@ def setup_all_bot_handlers(ptb_application: Application) -> None:
     )
     from handlers.myprojects import my_projects_command
     from handlers.view_project import handle_project_action_callback as view_project_callback
-    from app import (
+    from constants import (
         PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK, GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED,
         SELECT_PROJECT, UPDATE_PROGRESS, UPDATE_BLOCKERS,
         STATUS_OPTIONS, UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX, SELECT_PROJECT_PREFIX

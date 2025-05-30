@@ -5,7 +5,7 @@ from constants import (
     STATUS_OPTIONS, MAX_PROJECT_NAME_LENGTH, MAX_TAGLINE_LENGTH, MAX_PROBLEM_STATEMENT_LENGTH, MAX_TECH_STACK_LENGTH, MAX_GITHUB_LINK_LENGTH, MAX_HELP_NEEDED_LENGTH,
     validate_input_text, logger
 )
-from app import projects_table
+from database import projects_table
 
 async def newproject_entry_point(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Entry point for /newproject command."""

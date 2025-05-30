@@ -8,6 +8,25 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 - `/updateproject` - Log progress updates for existing projects
 - `/myprojects` - View and manage your projects
 
+## Project Structure
+
+```
+.
+├── app.py              # Main Flask application and Telegram bot setup
+├── constants.py        # Shared constants, logging config, and utilities
+├── gunicorn_config.py  # Gunicorn server configuration
+├── ping_service.py     # Service to keep the bot alive on Render
+├── requirements.txt    # Python dependencies
+├── handlers/          # Telegram bot command handlers
+│   ├── myprojects.py  # /myprojects command handler
+│   ├── new_project.py # /newproject command handler
+│   ├── update_project.py # /updateproject command handler
+│   └── view_project.py # Project viewing functionality
+└── documentation/     # Project documentation
+    ├── prd.md        # Product Requirements Document
+    └── todo.md       # Development TODO list
+```
+
 ## Prerequisites
 
 - Python 3.8 or higher
@@ -142,7 +161,7 @@ PORT=5000
 
 > **Note**: The `AIRTABLE_API_KEY` environment variable name remains the same for compatibility, but it should contain your Personal Access Token, not an API key.
 
-### 6. Local Testing
+### 5. Local Testing
 
 1. Start the bot:
    ```bash
@@ -155,7 +174,7 @@ PORT=5000
    - Start a chat
    - Try the commands: `/start`, `/newproject`, `/myprojects`
 
-### 7. Deployment on Render
+### 6. Deployment on Render
 
 1. Create a new Web Service on Render:
    - Go to [Render Dashboard](https://dashboard.render.com)
@@ -166,7 +185,7 @@ PORT=5000
    - Name: `loophole-project-tracker` (or your preferred name)
    - Environment: `Python 3`
    - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn app:app`
+   - Start Command: `gunicorn -c gunicorn_config.py app:app`
    - Plan: Free (or your preferred plan)
 
 3. Add Environment Variables:
@@ -182,7 +201,7 @@ PORT=5000
    - Once deployed, your bot will be available at your Render URL
    - The webhook will be automatically set up when the bot starts
 
-### 8. Monitoring and Maintenance
+The free tier of Render puts services to sleep after 15 minutes of inactivity. To prevent this, you can use one of these methods:
 
 1. View logs:
    - On Render: Go to your service → Logs
@@ -238,18 +257,26 @@ PORT=5000
 
 ## Development
 
-- Uses Flask for webhook handling
-- Python-telegram-bot for Telegram integration
-- PyAirtable for Airtable API interaction
-- Deployed on Render
+### Code Structure
 
-## Environment Variables
+- `app.py`: Main Flask application and Telegram bot setup
+- `constants.py`: Shared constants, logging configuration, and utility functions
+- `handlers/`: Telegram bot command handlers
+  - `myprojects.py`: Handles `/myprojects` command
+  - `new_project.py`: Handles `/newproject` command
+  - `update_project.py`: Handles `/updateproject` command
+  - `view_project.py`: Handles project viewing functionality
+- `gunicorn_config.py`: Gunicorn server configuration
+- `ping_service.py`: Service to keep the bot alive on Render
 
-- `TELEGRAM_BOT_TOKEN`: Your Telegram bot token from BotFather
-- `AIRTABLE_API_KEY`: Your Airtable Personal Access Token
-- `AIRTABLE_BASE_ID`: Your Airtable base ID
-- `WEBHOOK_URL`: The public URL where your bot is hosted
-- `PORT`: The port to run the server on (default: 5000)
+### Key Features
+
+- Asynchronous request handling with gevent
+- Lazy initialization of Telegram bot instance
+- Graceful shutdown handling
+- Comprehensive error logging
+- Input validation and sanitization
+- Modular command handler structure
 
 ## Contributing
 

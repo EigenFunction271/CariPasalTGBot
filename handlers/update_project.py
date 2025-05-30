@@ -4,7 +4,7 @@ from constants import (
     SELECT_PROJECT, UPDATE_PROGRESS, UPDATE_BLOCKERS,
     logger
 )
-from app import get_user_projects_from_airtable, get_project_updates_from_airtable, updates_table
+from database import get_user_projects_from_airtable, get_project_updates_from_airtable, updates_table
 
 async def handle_project_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
