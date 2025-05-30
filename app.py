@@ -166,7 +166,7 @@ def setup_all_bot_handlers(ptb_application: Application) -> None:
     # Update Project Conversation
     update_project_conv = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(handle_project_action_callback, pattern=f"^{UPDATE_PROJECT_PREFIX}"), # This handles the "Update" buttons
+            CallbackQueryHandler(update_project_action_callback, pattern=f"^{UPDATE_PROJECT_PREFIX}"), # This handles the "Update" buttons
             CommandHandler('updateproject', my_projects_command) # Direct /updateproject to show project list
         ],
         states={
