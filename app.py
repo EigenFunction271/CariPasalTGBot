@@ -483,7 +483,7 @@ def main() -> None:
     if WEBHOOK_URL:
         logger.info(f"Setting webhook to {WEBHOOK_URL}/webhook")
         # The line below is where the full URL including the path is constructed
-        success = telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+        success = telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
         if success:
             logger.info("Webhook set successfully!")
         else:
