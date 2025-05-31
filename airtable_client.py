@@ -1,12 +1,13 @@
 # airtable_client.py
 import os
-from pyairtable import Table
-from pyairtable.formulas import match
+#from pyairtable import Table
+#from pyairtable.formulas import match
 from dotenv import load_dotenv
 from datetime import datetime
 from datetime import datetime, timedelta
-from pyairtable.formulas import OR, GTE, LTE, AND, FIELD, FORMAT_DATETIME_STR
-from pyairtable.formulas import STR_VALUE, FIND, LOWER, OR, AND # Add AND if not already there
+from pyairtable.formulas import OR, GTE, LTE, AND, EQ, FIND, LOWER, NOT # Added EQ, NOT for flexibility
+#from pyairtable.formulas import OR, GTE, LTE, AND, FIELD, FORMAT_DATETIME_STR
+#from pyairtable.formulas import STR_VALUE, FIND, LOWER, OR, AND # Add AND if not already there
 
 
 load_dotenv()
@@ -102,44 +103,13 @@ def get_project_details(project_record_id: str):
 def get_projects_created_since(date_since: datetime):
     """
     Fetches projects created on or after a given date.
+    (Note: This relies on "Last Updated" as a proxy for creation/recent significant activity)
     """
     try:
-        # Airtable date functions often expect ISO format or a specific string format
-        # Ensure 'Created Time' field exists or use 'Last Updated' if it's set on creation
-        # For this example, let's assume you have an implicit 'Created Time' or use 'Last Updated'
-        # If you have a dedicated 'Created Date' field, use that.
-        # We'll use 'Last Updated' and assume it's set upon creation and means "created or updated"
-        
-        # This formula assumes 'Last Updated' is a date field in Airtable
-        # and 'date_since' is a Python datetime object.
-        # We need to format date_since to a string Airtable can understand in a formula.
-        # Example: IS_AFTER({Last Updated}, DATETIME_PARSE('2024-05-25'))
-        # pyairtable handles datetime objects directly in formula context for some operations
-        
-        formula = GTE(FIELD("Last Updated"), date_since) # Simpler way if pyairtable handles datetime objects
+        # pyairtable's GTE should handle Python datetime objects correctly.
+        formula = GTE("Last Updated", date_since) # Use field name as string
         records = projects_table.all(formula=formula, sort=["-Last Updated"])
-        
-        # Filter further if "Last Updated" also changes for non-creation events
-        # For now, this will fetch anything updated since that date.
-        # A true "created since" might need a 'Created Date' field or careful logic
-        # if 'Last Updated' is also modified by other actions soon after creation.
-        # For simplicity, we'll consider projects where their *first significant update*
-        # (which is creation) falls in this window.
-        
-        # Let's assume new projects are those with a status like 'Idea' and updated recently
-        # This is a proxy; a dedicated 'Creation Date' field is better.
-        
-        # A more robust way for "newly created" if you don't have a creation timestamp field,
-        # might be to check if the record was *first seen* in this period, which is hard
-        # without external tracking.
-        #
-        # Alternative: Fetch all projects and check their *initial* 'Last Updated' timestamp
-        # if you store it separately or if it's the *only* time 'Last Updated' has that value.
-        
-        # For this digest, let's define "new" as created (first save) in the last week.
-        # And "updated" as having an entry in the Updates table this week.
-        
-        return records # This will currently return projects *updated* since date_since
+        return records
     except Exception as e:
         print(f"Error fetching projects created since {date_since}: {e}")
         return []
@@ -149,9 +119,7 @@ def get_updates_since(date_since: datetime):
     Fetches updates from the Updates table created on or after a given date.
     """
     try:
-        # Assumes 'Timestamp' field in Updates table is a date field
-        formula = GTE(FIELD("Timestamp"), date_since)
-        # Sort by project, then by timestamp
+        formula = GTE("Timestamp", date_since) # Use field name as string
         records = updates_table.all(formula=formula, sort=["Project (Linked)", "-Timestamp"])
         return records
     except Exception as e:
@@ -178,28 +146,30 @@ def search_projects(criteria: dict):
         if keyword and keyword.strip():
             keyword_lower = keyword.strip().lower()
             # Search in Project Name, One-liner, Problem Statement
+            # FIND expects the string to search for, then the string to search in (which can be a field or LOWER(field))
             keyword_formula = OR(
-                FIND(STR_VALUE(keyword_lower), LOWER(FIELD("Project Name"))),
-                FIND(STR_VALUE(keyword_lower), LOWER(FIELD("One-liner"))),
-                FIND(STR_VALUE(keyword_lower), LOWER(FIELD("Problem Statement")))
-                # FIND(STR_VALUE(keyword_lower), LOWER(FIELD("Help Needed"))) # Optionally add more fields
+                FIND(keyword_lower, LOWER("Project Name")),
+                FIND(keyword_lower, LOWER("One-liner")),
+                FIND(keyword_lower, LOWER("Problem Statement"))
             )
             formulas.append(keyword_formula)
 
         stack = criteria.get("stack")
         if stack and stack.strip():
-            # Assuming stack is stored as text, search for substring
-            stack_formula = FIND(STR_VALUE(stack.strip().lower()), LOWER(FIELD("Stack"))) #
+            # Search for substring in the "Stack" field (case-insensitive)
+            stack_formula = FIND(stack.strip().lower(), LOWER("Stack"))
             formulas.append(stack_formula)
             
         status = criteria.get("status")
         if status and status.strip():
-            status_formula = (FIELD("Status") == status.strip()) #
+            # Use EQ for direct equality comparison
+            status_formula = EQ("Status", status.strip())
             formulas.append(status_formula)
 
         if not formulas:
-            return [] # Or return all projects if desired for empty search
+            return [] 
 
+        # Combine all formula parts with AND
         final_formula = AND(*formulas) if len(formulas) > 1 else formulas[0]
         
         records = projects_table.all(formula=final_formula, sort=["-Last Updated"])
@@ -207,5 +177,6 @@ def search_projects(criteria: dict):
     except Exception as e:
         print(f"Error searching projects with criteria {criteria}: {e}")
         return []
+
 
 # You can add more utility functions here as needed, e.g., to update specific project fields.
