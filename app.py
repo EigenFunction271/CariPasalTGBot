@@ -394,7 +394,7 @@ def process_and_display_search_results(update: Update, context: CallbackContext)
 
 # --- Flask App Setup ---
 flask_app = Flask(__name__)
-telegram_app = None  # Initialize as None, will be set in main()
+telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 @flask_app.route('/webhook', methods=['POST'])
 def webhook():
@@ -477,29 +477,23 @@ def main() -> None:
     # Error handler
     telegram_app.add_error_handler(error_handler)
 
-    # Set up webhook if WEBHOOK_URL is defined (for Render deployment)
-
-    
+    # Set up webhook on every import (safe for Gunicorn/WSGI)
     if WEBHOOK_URL:
         logger.info(f"Setting webhook to {WEBHOOK_URL}/webhook")
-        # The line below is where the full URL including the path is constructed
-        success = telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-        if success:
+        try:
+            telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
             logger.info("Webhook set successfully!")
-        else:
-            logger.error("Failed to set webhook.")
-  
-  
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}")
+
 # Entry point for Gunicorn or other WSGI servers
 application = flask_app
 
 if __name__ == '__main__':
-    main()  # Set up handlers and webhook if URL is present
-    
+    # For local development: run polling or Flask server
     if not WEBHOOK_URL:
         logger.info("Running Telegram bot with polling locally...")
         telegram_app.run_polling()
     else:
         logger.info("Flask app ready to receive webhooks. Make sure Gunicorn or similar is serving this app in production.")
-        # For local testing of webhook setup
         flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
