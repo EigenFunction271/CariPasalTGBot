@@ -7,24 +7,22 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 - `/newproject` - Create a new project entry
 - `/updateproject` - Log progress updates for existing projects
 - `/myprojects` - View and manage your projects
+- `/searchprojects` - Search for projects by keyword, stack, or status
+- Weekly digest of project updates (automated)
 
 ## Project Structure
 
 ```
 .
 ├── app.py              # Main Flask application and Telegram bot setup
-├── constants.py        # Shared constants, logging config, and utilities
-├── gunicorn_config.py  # Gunicorn server configuration
-├── ping_service.py     # Service to keep the bot alive on Render
+├── airtable_client.py  # Airtable API interaction module
+├── weekly_digest.py    # Weekly project digest generator
 ├── requirements.txt    # Python dependencies
-├── handlers/          # Telegram bot command handlers
-│   ├── myprojects.py  # /myprojects command handler
-│   ├── new_project.py # /newproject command handler
-│   ├── update_project.py # /updateproject command handler
-│   └── view_project.py # Project viewing functionality
+├── .env               # Environment variables (create this)
+├── .gitignore         # Git ignore rules
 └── documentation/     # Project documentation
     ├── prd.md        # Product Requirements Document
-    └── todo.md       # Development TODO list
+    └── prd_v2        # Updated PRD with implementation details
 ```
 
 ## Prerequisites
@@ -33,6 +31,7 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 - A Telegram account
 - An Airtable account
 - A Render account (for deployment)
+- Git (for version control)
 
 ## Setup Guide
 
@@ -44,10 +43,15 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    cd loophole-project-tracker
    ```
 
-2. Create a virtual environment:
+2. Create and activate a virtual environment:
    ```bash
+   # Windows
    python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   .\venv\Scripts\activate
+
+   # macOS/Linux
+   python3 -m venv venv
+   source venv/bin/activate
    ```
 
 3. Install dependencies:
@@ -60,13 +64,54 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 1. Open Telegram and search for [@BotFather](https://t.me/botfather)
 2. Start a chat and send `/newbot`
 3. Follow the prompts to:
-   - Choose a name for your bot
-   - Choose a username (must end in 'bot')
+   - Choose a name for your bot (e.g., "Loophole Project Tracker")
+   - Choose a username (must end in 'bot', e.g., "loophole_project_tracker_bot")
 4. BotFather will give you a token. Save this for later.
+
+5. Set up the group and topic for weekly digests:
+   - Create a new **group** in Telegram (or use an existing one)
+   - Add your bot as an administrator to the group
+   - Make sure the bot has permission to post messages and manage topics
+   - Enable topics (group must be a "forum" type group; see group settings)
+   - Create a topic (thread) in the group for digests (e.g., "Project Updates")
+   - Get the group ID and topic (thread) ID:
+     
+     **How to get the group ID:**
+     - Add your bot to the group as an admin
+     - Send any message in the group
+     - Go to https://web.telegram.org/a/ and open the group
+     - The URL will look like: `https://web.telegram.org/a/#-1001234567890`
+     - The number after `#` is your group ID (include the `-100` prefix)
+     - Alternatively, forward a message from the group to [@getidsbot](https://t.me/getidsbot) and it will reply with the group ID
+
+     **How to get the topic (thread) ID:**
+     - In the Telegram desktop app, right-click the topic and select "Copy Link"
+     - The link will look like: `https://t.me/c/1234567890/456` (where `456` is the topic ID)
+     - Or, in the mobile app, open the topic and tap the topic name, then tap "Copy Link"
+     - The topic (thread) ID is the number after the last `/` in the link
+     - Example: For `https://t.me/c/1234567890/456`, the topic ID is `456`
+
+   - Save these IDs for your `.env` file
+
+   - **.env example for group topic:**
+     ```env
+     TELEGRAM_BOT_TOKEN=your_bot_token_here
+     TELEGRAM_DIGEST_CHAT_ID=-1001234567890  # Group ID (with -100 prefix)
+     TELEGRAM_DIGEST_TOPIC_ID=456            # Topic (thread) ID
+     ```
+
+   - **Note:**
+     - The bot must be an admin in the group and have permission to post in the topic
+     - If you change the topic, update the `TELEGRAM_DIGEST_TOPIC_ID` in your `.env`
+     - For private groups, you must use the `-100` prefix for the group ID
 
 ### 3. Airtable Setup
 
-1. Create a new Airtable base
+1. Create a new Airtable base:
+   - Go to [Airtable](https://airtable.com)
+   - Click "Add a base" → "Start from scratch"
+   - Name it "Loophole Project Tracker"
+
 2. Create two tables:
 
    **Projects Table**
@@ -96,19 +141,16 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    - Click on "API" in the left sidebar
    - Under "Personal access tokens", click "Create a token"
    - Fill in the token details:
-     - Name: "Loophole Project Tracker" (or your preferred name)
+     - Name: "Loophole Project Tracker"
      - Expiration: Choose based on your needs (e.g., 1 year)
-     - Scopes: Select the following:
-       - `data.records:read` (to read project and update records)
-       - `data.records:write` (to create and update records)
-       - `schema.bases:read` (to read base structure)
+     - Scopes: Select:
+       - `data.records:read`
+       - `data.records:write`
+       - `schema.bases:read`
    - Click "Create token"
    - **IMPORTANT**: Copy the token immediately! It will look like `patXXXXXXXXXXXXXX`
      - You won't be able to see it again after leaving the page
      - Store it securely (e.g., in a password manager)
-     - You'll need it for the `.env` file
-
-   > **Note**: Airtable is deprecating API keys in favor of Personal Access Tokens. API keys will stop working after January 2024. This setup uses the new Personal Access Token system.
 
 4. Get your Base ID:
    - Open your base
@@ -116,50 +158,44 @@ A Telegram bot for Loophole Hackers community members to track and update their 
    - The `appXXXXXXXXXXXXXX` part is your Base ID
 
 5. Test your token (optional but recommended):
-   - Open a terminal
-   - For Windows PowerShell, run:
-     ```powershell
-     $headers = @{
-         "Authorization" = "Bearer patXXXXXXXXXXXXXX"
-     }
-     Invoke-RestMethod -Uri "https://api.airtable.com/v0/meta/bases/appXXXXXXXXXXXXXX/tables" -Headers $headers
-     ```
-   - For Unix-like systems (Linux/Mac), run:
-     ```bash
-     curl -H "Authorization: Bearer patXXXXXXXXXXXXXX" \
-          https://api.airtable.com/v0/meta/bases/appXXXXXXXXXXXXXX/tables
-     ```
-   - If successful, you'll see a JSON response with your tables
-   - If you get an error, double-check your token and base ID
-
-### 4. Webhook Setup
-
-1. For local development, you'll need a public URL. You can use [ngrok](https://ngrok.com/):
    ```bash
-   # Install ngrok
-   # Then run:
-   ngrok http 5000
+   # Windows PowerShell
+   $headers = @{
+       "Authorization" = "Bearer patXXXXXXXXXXXXXX"
+   }
+   Invoke-RestMethod -Uri "https://api.airtable.com/v0/meta/bases/appXXXXXXXXXXXXXX/tables" -Headers $headers
+
+   # macOS/Linux
+   curl -H "Authorization: Bearer patXXXXXXXXXXXXXX" \
+        https://api.airtable.com/v0/meta/bases/appXXXXXXXXXXXXXX/tables
    ```
-   This will give you output like:
+
+### 4. Environment Setup
+
+1. Create a `.env` file in the project root:
+   ```env
+   # Telegram Bot Configuration
+   TELEGRAM_BOT_TOKEN=your_bot_token_here  # From BotFather
+   TELEGRAM_DIGEST_CHAT_ID=-100xxxxxxxxxx  # Channel ID from @userinfobot
+
+   # Airtable Configuration
+   AIRTABLE_API_KEY=patXXXXXXXXXXXXXX      # Your Personal Access Token
+   AIRTABLE_BASE_ID=appXXXXXXXXXXXXXX      # Your Base ID
+   AIRTABLE_PROJECTS_TABLE_NAME=Projects    # Name of your Projects table
+   AIRTABLE_UPDATES_TABLE_NAME=Updates      # Name of your Updates table
+
+   # Webhook URL (for production)
+   WEBHOOK_URL=https://your-app-name.onrender.com
+
+   # Port (for local development)
+   PORT=5000
    ```
-   Forwarding    https://xxxx-xx-xx-xxx-xx.ngrok-free.app -> http://localhost:5000
+
+2. Verify your environment variables:
+   ```bash
+   # Check if all required variables are set
+   python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('TELEGRAM_BOT_TOKEN:', bool(os.getenv('TELEGRAM_BOT_TOKEN'))); print('TELEGRAM_DIGEST_CHAT_ID:', bool(os.getenv('TELEGRAM_DIGEST_CHAT_ID'))); print('AIRTABLE_API_KEY:', bool(os.getenv('AIRTABLE_API_KEY'))); print('AIRTABLE_BASE_ID:', bool(os.getenv('AIRTABLE_BASE_ID'))); print('AIRTABLE_PROJECTS_TABLE_NAME:', bool(os.getenv('AIRTABLE_PROJECTS_TABLE_NAME'))); print('AIRTABLE_UPDATES_TABLE_NAME:', bool(os.getenv('AIRTABLE_UPDATES_TABLE_NAME')))"
    ```
-   Use the `https://xxxx-xx-xx-xxx-xx.ngrok-free.app` URL as your `WEBHOOK_URL` in the `.env` file.
-
-2. For production, you'll use your Render URL (see Deployment section)
-
-### 5. Environment Variables
-
-Create a `.env` file in the project root:
-```env
-TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-AIRTABLE_API_KEY=your_airtable_personal_access_token
-AIRTABLE_BASE_ID=your_airtable_base_id
-WEBHOOK_URL=your_webhook_url
-PORT=5000
-```
-
-> **Note**: The `AIRTABLE_API_KEY` environment variable name remains the same for compatibility, but it should contain your Personal Access Token, not an API key.
 
 ### 5. Local Testing
 
@@ -172,7 +208,16 @@ PORT=5000
    - Open Telegram
    - Search for your bot
    - Start a chat
-   - Try the commands: `/start`, `/newproject`, `/myprojects`
+   - Try the commands:
+     - `/start` - Should show welcome message
+     - `/newproject` - Should start project creation flow
+     - `/myprojects` - Should show your projects (empty at first)
+     - `/searchprojects` - Should start project search flow
+
+3. Test the weekly digest:
+   ```bash
+   python weekly_digest.py
+   ```
 
 ### 6. Deployment on Render
 
@@ -185,7 +230,7 @@ PORT=5000
    - Name: `loophole-project-tracker` (or your preferred name)
    - Environment: `Python 3`
    - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn -c gunicorn_config.py app:app`
+   - Start Command: `gunicorn app:application`
    - Plan: Free (or your preferred plan)
 
 3. Add Environment Variables:
@@ -197,86 +242,58 @@ PORT=5000
    - Click "Create Web Service"
    - Wait for the first deployment to complete
 
-5. Set up the webhook:
-   - Once deployed, your bot will be available at your Render URL
-   - The webhook will be automatically set up when the bot starts
-
-The free tier of Render puts services to sleep after 15 minutes of inactivity. To prevent this, you can use one of these methods:
-
-1. View logs:
-   - On Render: Go to your service → Logs
-   - Locally: Check `bot.log`
-
-2. Common issues:
-   - If the bot stops responding, check the logs
-   - If Airtable sync fails, verify your API key and base ID
-   - If webhook fails, ensure your Render service is running
-
-3. Keeping the service alive on Render:
+5. Keep the service alive:
    - Render's free tier puts services to sleep after 15 minutes of inactivity
-   - To prevent this, you can use one of these free services:
+   - Use [UptimeRobot](https://uptimerobot.com/) to ping your service:
+     - Create a free account
+     - Add a new monitor:
+       - Monitor Type: HTTP(s)
+       - URL: Your Render URL + `/ping`
+       - Monitoring Interval: 5 minutes
 
-   a) **UptimeRobot** (Recommended):
-      - Go to [UptimeRobot](https://uptimerobot.com/)
-      - Sign up for a free account
-      - Add a new monitor:
-        - Monitor Type: HTTP(s)
-        - Friendly Name: "Loophole Bot Ping"
-        - URL: Your Render URL + `/ping` (e.g., `https://your-app.onrender.com/ping`)
-        - Monitoring Interval: 5 minutes
-      - The free tier includes 50 monitors and 5-minute intervals
-
-   b) **Cron-job.org**:
-      - Go to [Cron-job.org](https://cron-job.org/)
-      - Sign up for a free account
-      - Create a new cronjob:
-        - URL: Your Render URL + `/ping`
-        - Schedule: Every 14 minutes
-        - Request Method: GET
-      - The free tier includes unlimited cronjobs
-
-   c) **Local Ping Service** (Alternative):
-      - If you prefer to run your own ping service:
-        ```bash
-        # Install the ping service requirements
-        pip install requests python-dotenv
-
-        # Run the ping service
-        python ping_service.py
-        ```
-      - The ping service will:
-        - Send a request to your bot every 14 minutes
-        - Log all ping attempts to `ping_service.log`
-        - Keep your bot active 24/7
-      - You can run this on:
-        - Your local machine
-        - A Raspberry Pi
-        - Another always-on server
-
-   > **Note**: UptimeRobot is recommended as it's reliable, free, and requires no setup on your part. It also provides monitoring and alerts if your service goes down.
+6. Set up weekly digest:
+   - Create a new Cron Job on Render
+   - Schedule: Weekly (e.g., every Monday at 9 AM UTC)
+   - Command: `python weekly_digest.py`
 
 ## Development
 
 ### Code Structure
 
 - `app.py`: Main Flask application and Telegram bot setup
-- `constants.py`: Shared constants, logging configuration, and utility functions
-- `handlers/`: Telegram bot command handlers
-  - `myprojects.py`: Handles `/myprojects` command
-  - `new_project.py`: Handles `/newproject` command
-  - `update_project.py`: Handles `/updateproject` command
-  - `view_project.py`: Handles project viewing functionality
-- `gunicorn_config.py`: Gunicorn server configuration
-- `ping_service.py`: Service to keep the bot alive on Render
+- `airtable_client.py`: Airtable API interaction module
+- `weekly_digest.py`: Weekly project digest generator
+- `requirements.txt`: Python dependencies
+- `.env`: Environment variables (not in git)
+- `documentation/`: Project documentation
 
 ### Key Features
 
-- Asynchronous request handling with gevent
-- Lazy initialization of Telegram bot instance
-- Graceful shutdown handling
+- Asynchronous request handling
 - Comprehensive error logging
 - Input validation and sanitization
 - Modular command handler structure
+- Weekly project digest generation
+- Project search functionality
+
+### Testing
+
+Run tests with pytest:
+```bash
+pytest
+```
+
+### Code Style
+
+Format code with black:
+```bash
+black .
+```
+
+Check code style with flake8:
+```bash
+flake8 .
+```
 
 ## Contributing
 

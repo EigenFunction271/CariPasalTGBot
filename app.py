@@ -1,313 +1,505 @@
 # app.py
 import os
 import logging
-import sys
-from typing import Dict, Any, List, Optional
-
+from flask import Flask, request as flask_request
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify # Standard Flask imports
-from telegram import Update, BotCommand # Telegram imports
-from telegram.error import TelegramError # Specific error for handling
-from telegram.ext import (
-    Application,
-    ContextTypes, # For type hinting context
-    # Import specific handlers from telegram.ext inside setup_all_bot_handlers
-    # as they are only used there, to keep top-level imports cleaner.
-)
-import httpx # Modern HTTP client, used by PTB and for direct calls
-from datetime import datetime, timezone # For timestamps
-import asyncio # For async operations and Lock
 
-# Modularized imports
-from constants import (
-    logger, # Using logger from constants.py
-    PROJECT_NAME, PROJECT_TAGLINE, PROBLEM_STATEMENT, TECH_STACK,
-    GITHUB_LINK, PROJECT_STATUS, HELP_NEEDED, SELECT_PROJECT, UPDATE_PROGRESS,
-    UPDATE_BLOCKERS, STATUS_OPTIONS, UPDATE_PROJECT_PREFIX, VIEW_PROJECT_PREFIX,
-    SELECT_PROJECT_PREFIX
-)
-from database import ( # These are already async as per your database.py
-    projects_table, updates_table, get_user_projects_from_airtable,
-    get_project_updates_from_airtable, format_project_summary_text
-)
-# Assuming your handlers are structured correctly in the 'handlers' directory
-from handlers.new_project import (
-    newproject_entry_point, project_name_state, project_tagline_state,
-    problem_statement_state, tech_stack_state, github_link_state,
-    project_status_state_callback, help_needed_state, cancel_conversation
-)
-from handlers.update_project import (
-    handle_project_action_callback as update_project_action_callback, # Renamed to avoid clash
-    update_progress_state, update_blockers_state,
-    select_project_for_update
-)
-from handlers.myprojects import my_projects_command
-from handlers.view_project import handle_project_action_callback as view_project_action_callback
+import airtable_client # Our Airtable interaction module
 
-
-# --- Global Variables ---
-application: Optional[Application] = None
-application_lock = asyncio.Lock()
-
-# --- Flask App Initialization ---
-app = Flask(__name__)
-
-# --- Environment Variable Validation (Essential for app to run) ---
+# Load environment variables
 load_dotenv()
-logger.info("Attempted to load environment variables from .env file.")
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL') # Your Render app's URL for the webhook
 
-REQUIRED_APP_ENV_VARS = ['TELEGRAM_BOT_TOKEN', 'WEBHOOK_URL']
-# Airtable specific vars are checked in database.py
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("TELEGRAM_BOT_TOKEN missing in environment variables.")
 
-for var_name in REQUIRED_APP_ENV_VARS:
-    logger.info(f"APP_ENV_CHECK: {var_name} present: {var_name in os.environ}")
+# Enable logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-missing_app_vars = [var for var in REQUIRED_APP_ENV_VARS if not os.getenv(var)]
-if missing_app_vars:
-    critical_msg = f"CRITICAL STARTUP FAILURE (app.py): Missing  {', '.join(missing_app_vars)}"
-    logger.critical(critical_msg)
-    sys.exit(critical_msg)
+# --- Conversation States for /newproject ---
+(ASK_PROJECT_NAME, ASK_ONE_LINER, ASK_PROBLEM, ASK_STACK, 
+ ASK_LINK, ASK_STATUS, ASK_HELP_NEEDED) = range(7)
 
-TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-WEBHOOK_URL = os.getenv('WEBHOOK_URL', '')
+# --- Conversation States for /updateproject ---
+(CHOOSE_PROJECT_TO_UPDATE, ASK_PROGRESS_UPDATE, ASK_BLOCKERS) = range(7, 10)
 
 
-# --- Telegram Bot Setup Functions ---
-async def set_telegram_bot_commands(bot_instance: Application.bot_data) -> None:
-    commands = [
-        BotCommand("start", "🚀 Welcome & instructions"),
-        BotCommand("newproject", "✨ Create a new project"),
-        BotCommand("myprojects", "📂 View & manage your projects"),
-        BotCommand("cancel", "❌ Cancel current operation"),
+# --- Conversation States for /searchprojects ---
+(ASK_SEARCH_KEYWORD, ASK_SEARCH_STACK, ASK_SEARCH_STATUS, PROCESS_SEARCH) = range(10, 14) # Ensure unique range
+
+
+# In-memory store for conversation data (NOT SUITABLE FOR PRODUCTION at scale)
+user_data_store = {} 
+
+# --- Helper Functions ---
+def get_user_id(update: Update) -> str:
+    return str(update.effective_user.id)
+
+def clear_user_data(user_id: str):
+    if user_id in user_data_store:
+        del user_data_store[user_id]
+
+# --- /newproject Command Handlers ---
+def new_project_start(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    clear_user_data(user_id) # Clear any previous data
+    user_data_store[user_id] = {"telegram_id": user_id}
+    update.message.reply_text("Let's create a new project! What's the project name?")
+    return ASK_PROJECT_NAME
+
+def ask_one_liner(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["project_name"] = update.message.text #
+    update.message.reply_text("Great! Now, what's the one-liner tagline for your project?") #
+    return ASK_ONE_LINER
+
+def ask_problem(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["one_liner"] = update.message.text #
+    update.message.reply_text("What problem is this project trying to solve? (Problem Statement)") #
+    return ASK_PROBLEM
+
+def ask_stack(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["problem_statement"] = update.message.text #
+    update.message.reply_text("What's the tech stack? (e.g., Python, React, Firebase)") #
+    return ASK_STACK
+
+def ask_link(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["stack"] = update.message.text #
+    update.message.reply_text("Please provide a GitHub or demo link (URL).") #
+    return ASK_LINK
+
+def ask_status(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["github_demo_link"] = update.message.text #
+    keyboard = [ #
+        [InlineKeyboardButton("Idea", callback_data="status_Idea")],
+        [InlineKeyboardButton("MVP", callback_data="status_MVP")],
+        [InlineKeyboardButton("Launched", callback_data="status_Launched")],
     ]
-    try:
-        await bot_instance.set_my_commands(commands)
-        logger.info("Bot commands successfully set in Telegram.")
-    except Exception as e:
-        logger.error(f"Failed to set bot commands: {e}", exc_info=True)
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    update.message.reply_text("What's the current stage of the project?", reply_markup=reply_markup)
+    return ASK_STATUS
 
-async def set_telegram_webhook_with_bot_commands(bot_token_val: str, webhook_url_val: str, bot_instance: Application.bot_data) -> bool:
-    logger.info(f"Attempting to set webhook to: {webhook_url_val}")
-    set_webhook_api_url = f"https://api.telegram.org/bot{bot_token_val}/setWebhook"
-    payload = {"url": webhook_url_val, "allowed_updates": ["message", "callback_query"]}
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(set_webhook_api_url, json=payload)
-            resp.raise_for_status()
-            response_data = resp.json()
-            if response_data.get("ok"):
-                logger.info(f"Successfully set webhook: {response_data.get('description', 'OK')}")
-                await set_telegram_bot_commands(bot_instance)
-                return True
-            else:
-                logger.error(f"Telegram API error setting webhook: {response_data}")
-                return False
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTPStatusError setting webhook: {e.response.status_code} - {e.response.text}", exc_info=True)
-    except httpx.RequestError as e:
-        logger.error(f"RequestError setting webhook: {e}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Unexpected error setting webhook: {e}", exc_info=True)
-    return False
+def ask_help_needed(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    query.answer()
+    user_id = get_user_id(update)
+    
+    # Extract status from callback_data (e.g., "status_Idea" -> "Idea")
+    status = query.data.split('_')[1] 
+    user_data_store[user_id]["status"] = status #
+    
+    query.edit_message_text(text=f"Project stage set to: {status}")
+    context.bot.send_message(chat_id=user_id, text="What kind of help do you need for this project? (e.g., 'Frontend dev', 'User feedback')") #
+    return ASK_HELP_NEEDED
 
-# --- General Error Handler for PTB ---
-async def ptb_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error(f"GLOBAL_PTB_ERROR_HANDLER: Update {update} caused error: {context.error}", exc_info=context.error)
-    if isinstance(update, Update):
-        user_message = "🤖 Apologies, an unexpected error occurred. Please try again."
-        if update.effective_message:
-            try: await update.effective_message.reply_text(user_message)
-            except Exception as e: logger.error(f"Error sending error reply: {e}", exc_info=True)
-        elif update.callback_query and update.effective_chat:
-             try: await context.bot.send_message(chat_id=update.effective_chat.id, text=user_message)
-             except Exception as e: logger.error(f"Error sending callback error message: {e}", exc_info=True)
+def new_project_save(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["help_needed"] = update.message.text #
 
-# --- Command Handler: /start ---
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.effective_user or not update.message: return
-    user_name = update.effective_user.first_name
-    welcome_message = (
-        f"👋 Hello {user_name}!\n\n"
-        "I'm your Project Tracker Bot.\n\n"
-        "Commands:\n"
-        "  ✨ /newproject - Log a new project.\n"
-        "  📂 /myprojects - View & manage your projects.\n"
-        "  ❌ /cancel - Stop current operation.\n\n"
-        "Let's track! 🚀"
+    project_payload = {
+        "Project Name": user_data_store[user_id].get("project_name"),
+        "Owner Telegram ID": user_id,
+        "One-liner": user_data_store[user_id].get("one_liner"),
+        "Problem Statement": user_data_store[user_id].get("problem_statement"),
+        "Stack": user_data_store[user_id].get("stack"),
+        "GitHub/Demo": user_data_store[user_id].get("github_demo_link"),
+        "Status": user_data_store[user_id].get("status"),
+        "Help Needed": user_data_store[user_id].get("help_needed"),
+    }
+
+    record = airtable_client.add_project(project_payload)
+    if record:
+        update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
+    else:
+        update.message.reply_text("Sorry, there was an error creating your project. Please try again later.")
+    
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+# --- /myprojects Command Handler ---
+def my_projects(update: Update, context: CallbackContext) -> None:
+    user_id = get_user_id(update)
+    projects = airtable_client.get_projects_by_user(user_id)
+
+    if not projects:
+        update.message.reply_text("You don't have any projects yet. Use /newproject to create one!")
+        return
+
+    message = "Here are your projects:\n\n"
+    keyboard_buttons = []
+    for project in projects:
+        fields = project.get('fields', {})
+        project_name = fields.get("Project Name", "N/A")
+        one_liner = fields.get("One-liner", "") #
+        status = fields.get("Status", "N/A") #
+        message += f"- *{project_name}* ({status}): {one_liner}\n"
+        # Add button to update this specific project
+        keyboard_buttons.append(
+            [InlineKeyboardButton(f"Update '{project_name}'", callback_data=f"update_{project['id']}")]
+        )
+    
+    reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+    update.message.reply_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    # The callback_data 'update_{project_id}' will be handled by update_project_start_choose or a specific callback handler
+
+# --- /updateproject Command Handlers ---
+def update_project_start_choose(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    clear_user_data(user_id) # Clear any previous state
+    user_data_store[user_id] = {"telegram_id": user_id}
+
+    query = update.callback_query 
+    # This function can be triggered by /myprojects inline button or directly by /updateproject command
+    
+    if query: # Called from inline button in /myprojects
+        query.answer()
+        project_id_to_update = query.data.split('_')[1]
+        user_data_store[user_id]["project_to_update_id"] = project_id_to_update
+        project_details = airtable_client.get_project_details(project_id_to_update)
+        project_name = project_details.get('fields', {}).get('Project Name', 'this project') if project_details else 'this project'
+        
+        query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?")
+        return ASK_PROGRESS_UPDATE
+    else: # Called by /updateproject command
+        projects = airtable_client.get_projects_by_user(user_id)
+        if not projects:
+            update.message.reply_text("You don't have any projects to update. Use /newproject to create one first.")
+            return ConversationHandler.END
+
+        keyboard = []
+        for project in projects:
+            project_name = project.get('fields', {}).get("Project Name", "Unnamed Project")
+            keyboard.append([InlineKeyboardButton(project_name, callback_data=f"proj_{project['id']}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        update.message.reply_text("Which project do you want to update?", reply_markup=reply_markup)
+        return CHOOSE_PROJECT_TO_UPDATE
+
+def handle_project_selection_for_update(update: Update, context: CallbackContext) -> int:
+    query = update.callback_query
+    query.answer()
+    user_id = get_user_id(update)
+    
+    project_id = query.data.split('_')[1] # e.g., "proj_{id}"
+    user_data_store[user_id]["project_to_update_id"] = project_id
+    project_details = airtable_client.get_project_details(project_id)
+    project_name = project_details.get('fields', {}).get('Project Name', 'this project') if project_details else 'this project'
+
+    query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?") #
+    return ASK_PROGRESS_UPDATE
+
+def ask_blockers(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["progress_update"] = update.message.text #
+    update.message.reply_text("Any blockers this week? (Type 'None' if no blockers)") #
+    return ASK_BLOCKERS
+
+def save_project_update(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    user_data_store[user_id]["blockers"] = update.message.text #
+
+    project_id = user_data_store[user_id].get("project_to_update_id")
+    if not project_id:
+        update.message.reply_text("Error: Could not find the project to update. Please try starting the update process again.")
+        clear_user_data(user_id)
+        return ConversationHandler.END
+
+    update_payload = {
+        "Project (Linked)": [project_id], # Needs to be a list of record IDs for linked records
+        "Update Text": user_data_store[user_id].get("progress_update"),
+        "Blockers": user_data_store[user_id].get("blockers"),
+        "Updated By": user_id, #
+    }
+
+    record = airtable_client.add_update(update_payload)
+    if record:
+        project_details = airtable_client.get_project_details(project_id)
+        project_name = project_details.get('fields', {}).get('Project Name', 'The project') if project_details else 'The project'
+        update.message.reply_text(f"Update for '{project_name}' saved successfully!")
+    else:
+        update.message.reply_text("Sorry, there was an error saving your update. Please try again.")
+    
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+# --- Fallback and Error Handlers ---
+def cancel(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    update.message.reply_text('Operation cancelled.')
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+def error_handler(update: object, context: CallbackContext) -> None:
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        update.effective_message.reply_text('An error occurred. Please try again later.')
+
+# Helper to get target chat_id and message_thread_id for replies in context
+def get_reply_params(update: Update) -> dict:
+    params = {"chat_id": update.effective_chat.id}
+    if update.effective_message and update.effective_message.is_topic_message:
+        params["message_thread_id"] = update.effective_message.message_thread_id
+    return params
+
+# --- /searchprojects Command Handlers ---
+def search_projects_start(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update) # For user_data_store key
+    clear_user_data(user_id)
+    user_data_store[user_id] = {"search_criteria": {}}
+    
+    reply_params = get_reply_params(update) # Get chat_id and potential message_thread_id
+
+    keyboard = [[InlineKeyboardButton("Skip Keyword", callback_data="search_skip_keyword")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # If the initial command is from a topic, this reply_text will go to the topic.
+    # If it's a DM, it goes to the DM.
+    update.message.reply_text( 
+        "Let's find some projects! Enter a keyword to search in name, tagline, or problem statement (or skip):",
+        reply_markup=reply_markup
     )
-    try:
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
-    except TelegramError as e:
-        logger.error(f"Error sending /start message: {e}", exc_info=True)
+    return ASK_SEARCH_KEYWORD
 
-# --- Setup All Bot Handlers ---
-def setup_all_bot_handlers(ptb_application: Application) -> None:
-    # Import PTB handler types here to keep top-level cleaner
-    from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+def handle_search_keyword(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update) # For user_data_store key
+    query = update.callback_query
+    
+    # Determine where to send the next prompt based on original interaction
+    # If original update was a message, use that context. If it's a query, use query's message context.
+    effective_update_for_context = query if query else update
+    reply_params = get_reply_params(effective_update_for_context)
 
-    ptb_application.add_error_handler(ptb_error_handler)
 
-    # New Project Conversation
-    new_project_conv = ConversationHandler(
-        entry_points=[CommandHandler('newproject', newproject_entry_point)],
+    if query: # Skipped keyword
+        query.answer()
+        # Edit the message that had the "Skip Keyword" button
+        query.edit_message_text("Keyword skipped.")
+    else: # Keyword provided by text message
+        user_data_store[user_id]["search_criteria"]["keyword"] = update.message.text
+        # Reply to the message that provided the keyword
+        update.message.reply_text("Got it. Keyword set.")
+
+
+    keyboard = [[InlineKeyboardButton("Skip Stack", callback_data="search_skip_stack")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    context.bot.send_message(
+        **reply_params, # Unpack chat_id and message_thread_id
+        text="Enter a tech stack to filter by (e.g., Python, React) (or skip):",
+        reply_markup=reply_markup
+    )
+    return ASK_SEARCH_STACK
+
+
+def handle_search_stack(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update) # For user_data_store key
+    query = update.callback_query
+    
+    effective_update_for_context = query if query else update
+    reply_params = get_reply_params(effective_update_for_context)
+
+    if query: # Skipped stack via callback
+        query.answer()
+        query.edit_message_text("Stack filter skipped.")
+    else: # Stack provided via text message
+        user_data_store[user_id]["search_criteria"]["stack"] = update.message.text
+        update.message.reply_text("Tech stack filter set.")
+
+    status_keyboard = [
+        [InlineKeyboardButton("Idea", callback_data="search_status_Idea")],
+        [InlineKeyboardButton("MVP", callback_data="search_status_MVP")],
+        [InlineKeyboardButton("Launched", callback_data="search_status_Launched")],
+        [InlineKeyboardButton("Any Status", callback_data="search_skip_status")]
+    ]
+    reply_markup = InlineKeyboardMarkup(status_keyboard)
+    context.bot.send_message(
+        **reply_params, # Unpack chat_id and message_thread_id
+        text="Filter by project status (or choose any):",
+        reply_markup=reply_markup
+    )
+    return ASK_SEARCH_STATUS
+
+def process_and_display_search_results(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update) # For user_data_store key
+    query = update.callback_query # This handler is only triggered by callback
+    
+    # The query is from a message previously sent by the bot (e.g. the status selection message)
+    # We want the final results to go to the same chat/topic as that message.
+    reply_params = {"chat_id": query.message.chat_id}
+    if query.message.is_topic_message:
+        reply_params["message_thread_id"] = query.message.message_thread_id
+        
+    query.answer()
+
+    if not query.data == "search_skip_status":
+        status = query.data.split('_')[2]
+        user_data_store[user_id]["search_criteria"]["status"] = status
+        query.edit_message_text(f"Status filter set to: {status}") # Edits the status selection message
+    else:
+        query.edit_message_text("Status filter skipped (any status).")
+
+    criteria = user_data_store[user_id].get("search_criteria", {})
+    
+    if not any(criteria.values()): # Check if all values in criteria are None or empty
+        context.bot.send_message(
+            **reply_params,
+            text="No search criteria provided. Please try again with at least one filter."
+        )
+        clear_user_data(user_id)
+        return ConversationHandler.END
+
+    # Send a "Searching..." message to the same context
+    context.bot.send_message(**reply_params, text=f"Searching with criteria: {criteria}...")
+    
+    results = airtable_client.search_projects(criteria)
+
+    if not results:
+        context.bot.send_message(**reply_params, text="No projects found matching your criteria.")
+    else:
+        message_parts = ["*Search Results:*\n\n"]
+        for project in results[:10]: # Limit results
+            fields = project.get('fields', {})
+            # ... (formatting logic for each project) ...
+            project_name = fields.get("Project Name", "N/A")
+            one_liner = fields.get("One-liner", "") #
+            status = fields.get("Status", "N/A") #
+            stack = fields.get("Stack", "N/A") #
+            message_parts.append(f"- *{project_name}* ({status})\n")
+            message_parts.append(f"  _Stack:_ {stack}\n")
+            message_parts.append(f"  _Tagline:_ {one_liner}\n\n")
+        
+        if len(results) > 10:
+            message_parts.append(f"\n...and {len(results) - 10} more. Consider refining your search.")
+        
+        final_message = "".join(message_parts)
+        context.bot.send_message(**reply_params, text=final_message, parse_mode='Markdown')
+
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+# Apply similar `get_reply_params` logic or direct `message_thread_id` handling
+# to other handlers like /newproject and /updateproject if you want their
+# non-reply/non-edit messages to also stay within topics when invoked there.
+
+
+
+# --- Flask App Setup ---
+flask_app = Flask(__name__)
+telegram_app = None  # Initialize as None, will be set in main()
+
+@flask_app.route('/webhook', methods=['POST'])
+def webhook():
+    if telegram_app is None:
+        return 'Bot not initialized', 500
+    # Process the update from Telegram
+    # This will be called by the `Application` instance from `python-telegram-bot`
+    # when it's configured to use webhooks.
+    # The actual processing is handled by the `telegram_app` dispatcher.
+    json_data = flask_request.get_json(force=True)
+    update = Update.de_json(json_data, telegram_app.bot)
+    telegram_app.update_queue.put(update)
+    return 'ok', 200
+
+@flask_app.route('/ping', methods=['GET'])
+def ping():
+    return 'pong', 200
+
+def main() -> None:
+    """Start the bot."""
+    global telegram_app # Make it global so webhook can access it
+
+    # Create the Application and pass it your bot's token.
+    telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # --- ConversationHandler for /newproject ---
+    new_project_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('newproject', new_project_start)],
         states={
-            PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_name_state)],
-            PROJECT_TAGLINE: [MessageHandler(filters.TEXT & ~filters.COMMAND, project_tagline_state)],
-            PROBLEM_STATEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, problem_statement_state)],
-            TECH_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, tech_stack_state)],
-            GITHUB_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, github_link_state)],
-            PROJECT_STATUS: [CallbackQueryHandler(project_status_state_callback, pattern=f"^({'|'.join(STATUS_OPTIONS)})$")], # Ensure pattern matches STATUS_OPTIONS
-            HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, help_needed_state)],
+            ASK_PROJECT_NAME: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_one_liner)],
+            ASK_ONE_LINER: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_problem)],
+            ASK_PROBLEM: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_stack)],
+            ASK_STACK: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_link)],
+            ASK_LINK: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_status)], # Ideally validate URL here
+            ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')],
+            ASK_HELP_NEEDED: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, new_project_save)],
         },
-        fallbacks=[CommandHandler('cancel', cancel_conversation)],
+        fallbacks=[CommandHandler('cancel', cancel)],
     )
-    ptb_application.add_handler(new_project_conv)
 
-    # Update Project Conversation
-    update_project_conv = ConversationHandler(
+    # --- ConversationHandler for /updateproject ---
+    update_project_conv_handler = ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(update_project_action_callback, pattern=f"^{UPDATE_PROJECT_PREFIX}"), # This handles the "Update" buttons
-            CommandHandler('updateproject', my_projects_command) # Direct /updateproject to show project list
+            CommandHandler('updateproject', update_project_start_choose), #
+            CallbackQueryHandler(update_project_start_choose, pattern='^update_') # From /myprojects
         ],
         states={
-            # State for selecting a project if update_project_action_callback leads here
-            SELECT_PROJECT: [CallbackQueryHandler(select_project_for_update, pattern=f"^{SELECT_PROJECT_PREFIX}")],
-            UPDATE_PROGRESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_progress_state)],
-            UPDATE_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, update_blockers_state)],
+            CHOOSE_PROJECT_TO_UPDATE: [CallbackQueryHandler(handle_project_selection_for_update, pattern='^proj_')],
+            ASK_PROGRESS_UPDATE: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_blockers)],
+            ASK_BLOCKERS: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, save_project_update)],
         },
-        fallbacks=[CommandHandler('cancel', cancel_conversation)],
+        fallbacks=[CommandHandler('cancel', cancel)],
     )
-    ptb_application.add_handler(update_project_conv)
 
-    # Simple Command Handlers
-    ptb_application.add_handler(CommandHandler("start", start_command))
-    ptb_application.add_handler(CommandHandler("myprojects", my_projects_command))
-
-    # Standalone CallbackQueryHandler for "View Project" buttons from /myprojects
-    ptb_application.add_handler(CallbackQueryHandler(view_project_action_callback, pattern=f"^{VIEW_PROJECT_PREFIX}"))
-
-    logger.info("All PTB handlers have been configured.")
-
-# --- Core Telegram Application Initialization (Lazy) ---
-async def initialize_telegram_bot_instance_lazily() -> Optional[Application]:
-    worker_pid = os.getpid()
-    logger.info(f"[Worker {worker_pid}] LAZY_INIT: Creating and initializing new Application instance.")
-
-    if not TELEGRAM_BOT_TOKEN or not WEBHOOK_URL: # Already checked globally, but good for sanity
-        logger.error(f"[Worker {worker_pid}] LAZY_INIT: Missing TELEGRAM_BOT_TOKEN or WEBHOOK_URL in lazy init path.")
-        return None
-
-    try:
-        temp_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-        logger.info(f"[Worker {worker_pid}] LAZY_INIT: PTB Application object built.")
-
-        setup_all_bot_handlers(temp_app) # Wire up all handlers
-        
-        await temp_app.initialize()
-        ptb_initialized_flag = getattr(temp_app, '_initialized', False)
-        logger.info(f"[Worker {worker_pid}] LAZY_INIT: temp_app.initialize() completed. PTB _initialized: {ptb_initialized_flag}")
-
-        if not ptb_initialized_flag:
-            logger.error(f"[Worker {worker_pid}] LAZY_INIT: PTB _initialized flag is False after .initialize(). Cannot proceed.")
-            return None
-
-        webhook_set_ok = await set_telegram_webhook_with_bot_commands(TELEGRAM_BOT_TOKEN, WEBHOOK_URL, temp_app.bot)
-        if not webhook_set_ok: # Log warning but proceed if PTB part is okay. Webhook might be already set.
-            logger.warning(f"[Worker {worker_pid}] LAZY_INIT: Call to set Telegram webhook indicated an issue (see previous logs).")
-
-        if hasattr(temp_app, 'post_init') and callable(temp_app.post_init):
-            logger.info(f"[Worker {worker_pid}] LAZY_INIT: Calling temp_app.post_init().")
-            await temp_app.post_init()
-            logger.info(f"[Worker {worker_pid}] LAZY_INIT: temp_app.post_init() completed.")
-        else:
-            post_init_val = getattr(temp_app, 'post_init', 'ATTRIBUTE_NOT_FOUND')
-            logger.warning(
-                f"[Worker {worker_pid}] LAZY_INIT: temp_app.post_init is not callable or not found. "
-                f"Value: {post_init_val}" # Check if this still logs 'None'
-            )
-        
-        logger.info(f"[Worker {worker_pid}] LAZY_INIT: New Application instance appears fully initialized.")
-        return temp_app
-    except Exception as e:
-        logger.critical(f"[Worker {worker_pid}] LAZY_INIT: CRITICAL error during Application instance initialization: {e}", exc_info=True)
-        return None
-
-# --- Flask Routes ---
-@app.route('/', methods=['POST'])
-async def telegram_webhook_route():
-    global application
-    current_app_for_request = application
-
-    if current_app_for_request is None or not getattr(current_app_for_request, '_initialized', False):
-        async with application_lock:
-            if application is None or not getattr(application, '_initialized', False): # Double-check lock
-                worker_pid = os.getpid()
-                logger.info(f"[Worker {worker_pid}] WEBHOOK: Global 'application' NOT ready. LAZY INIT attempt.")
-                initialized_app_obj = await initialize_telegram_bot_instance_lazily()
-                if initialized_app_obj and getattr(initialized_app_obj, '_initialized', False):
-                    application = initialized_app_obj
-                    current_app_for_request = application
-                    logger.info(f"[Worker {worker_pid}] WEBHOOK: Lazy initialization SUCCEEDED.")
-                else:
-                    logger.critical(f"[Worker {worker_pid}] WEBHOOK: Lazy initialization FAILED.")
-                    return jsonify({'error': 'Bot backend init failed'}), 500
-            else:
-                current_app_for_request = application
-                logger.info(f"[Worker {os.getpid()}] WEBHOOK: App was set by another request during lock.")
-
-    if current_app_for_request is None or not getattr(current_app_for_request, '_initialized', False):
-        logger.critical(f"[Worker {os.getpid()}] WEBHOOK: CRITICAL - App STILL not ready.")
-        return jsonify({'error': 'Bot backend critically uninitialized'}), 500
+    # --- ConversationHandler for /searchprojects ---
+    search_conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('searchprojects', search_projects_start)],
+        states={
+            ASK_SEARCH_KEYWORD: [
+                MessageHandler(Filters.TEXT & ~Filters.COMMAND, handle_search_keyword),
+                CallbackQueryHandler(handle_search_keyword, pattern='^search_skip_keyword$')
+            ],
+            ASK_SEARCH_STACK: [
+                MessageHandler(Filters.TEXT & ~Filters.COMMAND, handle_search_stack),
+                CallbackQueryHandler(handle_search_stack, pattern='^search_skip_stack$')
+            ],
+            ASK_SEARCH_STATUS: [
+                CallbackQueryHandler(process_and_display_search_results, pattern='^search_status_|^search_skip_status$')
+            ],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+    )
     
-    try:
-        # --- CORRECTED LINE ---
-        request_data = request.get_json(force=True) # Synchronous call
-        # --- ---
-
-        chat_id_log = request_data.get('message', {}).get('chat', {}).get('id') or \
-                      request_data.get('callback_query', {}).get('message', {}).get('chat', {}).get('id')
-        logger.info(f"WEBHOOK: Received update for chat_id: {chat_id_log if chat_id_log else 'Unknown'}")
-
-        update_obj = Update.de_json(request_data, current_app_for_request.bot)
-        await current_app_for_request.process_update(update_obj)
-    except TelegramError as te:
-        logger.error(f"WEBHOOK: TelegramError processing update: {te}", exc_info=True)
-        return jsonify({'status': 'telegram error processing update'}), 200
-    except Exception as e: # Catch other errors like the TypeError if await was still there
-        logger.error(f"WEBHOOK: Generic error processing update: {e}", exc_info=True) # Log the actual error type
-        return jsonify({'status': f'general error processing update: {type(e).__name__}'}), 200
+    # Add all handlers
+    telegram_app.add_handler(new_project_conv_handler)
+    telegram_app.add_handler(update_project_conv_handler)
+    telegram_app.add_handler(search_conv_handler)
+    telegram_app.add_handler(CommandHandler('myprojects', my_projects))
     
-    return jsonify({'status': 'ok'}), 200
+    # Error handler
+    telegram_app.add_error_handler(error_handler)
 
-# --- Gunicorn Hooks (defined in app.py, referenced by gunicorn_config.py) ---
-def on_worker_boot(worker_obj):
-    worker_pid = worker_obj.pid if worker_obj else os.getpid()
-    logger.info(f"APP_HOOK: on_worker_boot for worker PID {worker_pid}. PTB App will be lazy-initialized.")
+    # Set up webhook if WEBHOOK_URL is defined (for Render deployment)
+    if WEBHOOK_URL:
+        webhook_url = f"{WEBHOOK_URL}/webhook"
+        logger.info(f"Setting webhook to {webhook_url}")
+        try:
+            telegram_app.bot.set_webhook(url=webhook_url)
+            logger.info("Webhook set successfully")
+        except Exception as e:
+            logger.error(f"Failed to set webhook: {e}")
+            raise
+    else:
+        logger.info("No WEBHOOK_URL set, will use polling in development")
 
-def worker_int(worker_obj):
-    global application
-    pid = worker_obj.pid if worker_obj else 'UnknownPID'
-    logger.info(f"APP_HOOK: worker_int (graceful shutdown) for worker PID {pid}.")
-    if application and hasattr(application, 'shutdown') and callable(application.shutdown):
-        logger.info(f"APP_HOOK: Attempting graceful shutdown of PTB App for worker PID {pid}.")
-        try: asyncio.run(application.shutdown())
-        except Exception as e: logger.error(f"APP_HOOK: Error during PTB shutdown (worker_int) for PID {pid}: {e}", exc_info=True)
-    else: logger.info(f"APP_HOOK: PTB App not available for shutdown (worker_int) for PID {pid}.")
+# Entry point for Gunicorn or other WSGI servers
+application = flask_app
 
-def worker_abort(worker_obj):
-    global application
-    pid = worker_obj.pid if worker_obj else 'UnknownPID'
-    logger.warning(f"APP_HOOK: worker_abort for worker PID {pid}.")
-    if application and hasattr(application, 'shutdown') and callable(application.shutdown):
-        logger.warning(f"APP_HOOK: Attempting shutdown of PTB App for aborted worker PID {pid}.")
-        try: asyncio.run(application.shutdown())
-        except Exception as e: logger.error(f"APP_HOOK: Error during PTB shutdown (worker_abort) for PID {pid}: {e}", exc_info=True)
-    else: logger.info(f"APP_HOOK: PTB App not available for shutdown (worker_abort) for PID {pid}.")
-
-# --- Main Entry Point (for `python app.py`) ---
 if __name__ == '__main__':
-    logger.info("Script executed with `if __name__ == '__main__':` (typically for local dev).")
-    # For Gunicorn, 'app:app' is entry point, and gunicorn_config.py is used via '-c'.
-    # If FLASK_DEBUG or a similar env var is set, you might run app.run() here for local testing.
-    # e.g., app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), debug=True)
-    pass
+    main()  # Set up handlers and webhook if URL is present
+    
+    if not WEBHOOK_URL:
+        logger.info("Running Telegram bot with polling locally...")
+        telegram_app.run_polling()
+    else:
+        logger.info("Flask app ready to receive webhooks. Make sure Gunicorn or similar is serving this app in production.")
+        # For local testing of webhook setup
+        flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))

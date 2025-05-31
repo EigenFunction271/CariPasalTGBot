@@ -1,0 +1,204 @@
+Okay, based on our progress with the conceptual implementation of Phase 2, here's an updated Product Requirements Document (PRD), a TODO list geared towards an implementer (like a developer or an AI coding assistant such as Cursor), and a plan for additional features.
+
+Updated Product Requirements Document (PRD) - Loophole Hackers Telegram Bot
+Version: 1.1 (Post Phase 2 Conceptual Implementation)
+Date: June 1, 2025
+
+1. Summary
+A custom Telegram bot to let builders at Loophole Hackers self-report project progress, reducing ops overhead and enabling automated tracking via Airtable. Deployed on Render, it serves as a lightweight interface for project creation, updates, and basic Browse via Telegram chat.
+
+2. Objectives
+Allow users to create and update project records directly via Telegram.
+Automatically sync submissions to Airtable.
+Send weekly reminders to update (pending implementation).
+Reduce manual tracking and form fatigue.
+Support future integrations and feature enhancements.
+3. Core Features (Refined from Phase 2)
+3.1. /newproject
+Initiates a guided conversation to collect project details.
+Collects:
+Project name (Text)
+One-liner tagline (Text)
+Problem statement (Long text)
+Tech stack (Free text)
+GitHub or demo link (URL, requires validation)
+Current stage (Idea, MVP, Launched - selected via Inline Keyboard)
+Help needed (Free text)
+Saves all information to the Projects table in Airtable, associating it with the user's Telegram ID.
+Sets the Last Updated field upon creation.
+3.2. /updateproject
+If called directly, lists the user’s existing projects (fetched via Telegram ID from Airtable) using Inline Keyboard buttons for selection.
+Can also be triggered via a callback button from the /myprojects command for a specific project.
+Once a project is selected, initiates a conversation to collect:
+Progress made this week (Long text)
+Blockers (Long text, can be "None")
+Saves the update to the Updates table in Airtable, linking to the parent project and including the user's Telegram ID and a timestamp.
+Updates the Last Updated field in the corresponding Projects table record.
+3.3. /myprojects
+Fetches all projects associated with the user's Telegram ID from Airtable.
+Returns a summarized list of projects (e.g., Name, Status, One-liner).
+Each project in the list will have an Inline Keyboard button to directly trigger the /updateproject flow for that specific project.
+3.4. /cancel
+A command available during multi-step conversations (/newproject, /updateproject) to abort the current operation.
+4. Database: Airtable
+The database schema remains as initially defined.
+
+4.1. Table: Projects
+F### Table: `Projects`
+| Field             | Type           |
+|------------------|----------------|
+| Project Name      | Text           |
+| Owner Telegram ID | Text           |
+| One-liner         | Text           |
+| Problem Statement | Long text      |
+| Stack             | Text           |
+| GitHub/Demo       | URL            |
+| Status            | Single select  |
+| Help Needed       | Long text      |
+| Last Updated      | Date           |
+
+### Table: `Updates`
+| Field             | Type           |
+|------------------|----------------|
+| Project (Linked)  | Link to Project|
+| Update Text       | Long text      |
+| Blockers          | Long text      |
+| Updated By        | Telegram ID    |
+| Timestamp         | Date           |
+
+
+
+Export to Sheets
+5. Technology Stack & Deployment
+Backend: Python with Flask.
+Telegram Bot Library: python-telegram-bot.
+Airtable Client: pyairtable.
+Deployment: Render (Flask backend with Gunicorn, using webhook).
+Webhook: Telegram bot updates received via a webhook, not polling.
+Conversation State Management: Currently prototyped with in-memory Python dictionary. To be upgraded to a persistent solution (e.g., Redis, database-backed sessions) for production.
+Environment Variables: Secure management of API keys and configuration via .env file locally and environment variables on Render.
+6. Error Handling & Logging
+Implement comprehensive error handling for API calls (Airtable, Telegram), user input validation, and unexpected exceptions.
+Provide user-friendly error messages via Telegram.
+Set up structured logging for debugging, monitoring, and auditing purposes on Render.
+7. Success Criteria
+Builders actively using the bot for creating projects and submitting weekly updates.
+Reduced operational overhead for manually collecting and tracking project data.
+Airtable database consistently populated with current and accurate project metadata and progress updates.
+Positive feedback from users regarding ease of use and time saved.
+8. Future Features (High-Level Overview)
+Weekly automated reminders for updates.
+Weekly digest broadcast of project updates.
+Notion synchronization or embeddable views.
+LLM-powered summarization of project updates.
+Contributor matchmaking based on skills and project needs.
+More structured, role-based help requests.
+TODO List for Implementer (e.g., Cursor / Developer)
+This list covers tasks to productionize the Phase 2 skeleton and move towards initial release.
+
+Task Category: Code Refinement & Completion (from Phase 2 Skeleton)
+T-1: Implement Robust Input Validation:
+For /newproject -> GitHub/Demo link: Validate URL format.
+Consider length limits for text fields to prevent abuse/errors and align with Airtable limits if any.
+Sanitize inputs where necessary.
+T-2: Enhance Error Handling & User Feedback:
+In airtable_client.py: Provide more specific error messages for different API failure scenarios (e.g., auth error, not found, rate limit).
+In app.py: Ensure all user interactions provide clear confirmation or error messages. For instance, if an Airtable call fails, inform the user gracefully.
+T-3: Refine Conversation Flows:
+Review all bot prompts and messages for clarity, conciseness, and tone.
+Ensure /cancel command works reliably from all states of ConversationHandler.
+T-4: Idempotency Check (Optional but good):
+Consider if any operations need to be idempotent (e.g., preventing duplicate project creation on quick resubmission – Airtable typically handles unique record creation well, but bot flow might need checks).
+Task Category: Conversation State Management
+T-5: Upgrade Conversation State Persistence:
+Research options: Redis, python-telegram-bot's PicklePersistence or DictPersistence (if appropriate for Render's filesystem and concurrency model), or a simple DB.
+Implement the chosen persistent solution for user_data_store to replace the in-memory dictionary. This is critical for stability across bot restarts and potential scaling.
+Task Category: Testing (Phase 3 Core)
+T-6: Develop Unit Tests:
+For airtable_client.py: Test functions like add_project, get_projects_by_user, add_update with mock Airtable responses.
+For helper functions in app.py.
+T-7: Develop Integration Tests:
+Simulate Telegram updates for each command (/newproject, /updateproject, /myprojects) and verify the end-to-end flow, including Airtable interactions (can use a staging/test Airtable base).
+T-8: Conduct User Acceptance Testing (UAT):
+Recruit a small group of target builders.
+Provide them with test scenarios.
+Collect feedback on usability, bugs, and overall experience.
+Task Category: Deployment (Phase 3 Core)
+T-9: Finalize Render Deployment Configuration:
+Ensure Procfile (e.g., web: gunicorn app:application) is correct.
+Set up all necessary environment variables on Render (API keys, webhook URL, table names, base ID).
+Configure logging on Render to capture bot logs.
+T-10: Securely Set Telegram Webhook:
+Verify the WEBHOOK_URL environment variable is the correct public URL from Render.
+Ensure the main() function in app.py correctly sets the webhook upon startup when WEBHOOK_URL is present.
+Task Category: Initial Feature Implementation (from Objectives)
+T-11: Implement Weekly Reminders:
+Design Logic: Determine criteria (e.g., projects not updated in the last 7 days).
+Create Script: A Python script that:
+Fetches projects and their Last Updated dates from Airtable.
+Identifies users needing reminders.
+Uses the bot's token and telegram.Bot instance (or a direct API call) to send a reminder message to the Owner Telegram ID.
+Schedule: Configure this script as a Cron Job on Render to run weekly.
+Task Category: Documentation
+T-12: Create User Guide:
+Simple instructions on how to use /newproject, /updateproject, /myprojects, and /cancel.
+T-13: Prepare Developer Documentation:
+README with setup instructions (environment variables, dependencies).
+Brief overview of the architecture.
+Deployment steps for Render.
+Plan for Additional Features (Post-Initial Release)
+This outlines features to enhance the bot's utility, drawing from the PRD's future goals and adding some new ideas.
+
+Tier 1: Enhancing Core Utility & Engagement
+Weekly Digest Broadcast:
+
+Description: Automatically compile a summary of project updates (e.g., new projects, significant progress on existing ones) from the Updates and Projects tables over the past week.
+Implementation: A scheduled script (Render Cron Job) that formats this digest and broadcasts it to a designated Telegram group/channel. Could use simple text formatting or Markdown.
+Value: Keeps everyone informed, encourages engagement.
+LLM Summary of Updates:
+
+Description: For projects with lengthy text updates in the Updates table, use an LLM (e.g., via an API) to generate a concise summary (1-2 sentences).
+Implementation: Integrate an LLM API call after an update is submitted or as part of the weekly digest generation. Store summary in a new Airtable field or use it ephemerally.
+Value: Makes digests more scannable and highlights key progress.
+Improved /help Command & Onboarding:
+
+Description: A comprehensive /help command explaining all features, syntax, and providing tips. Improve the initial interaction for new users.
+Implementation: Static text messages or a more interactive guided help.
+Value: Better user experience, reduces support questions.
+Project Search/Browse by Criteria:
+
+Description: Allow users to search or filter projects within Telegram using commands like /findproject <keyword> or /browse --stack Python --status MVP.
+Implementation: Extend airtable_client.py with more advanced querying capabilities. Use conversation flow or command arguments to get search criteria.
+Value: Helps users discover projects and find specific information.
+Tier 2: Collaboration & Community Building
+Contributor Matchmaking (Basic):
+
+Description: Extend the "Help Needed" field to be more structured (e.g., predefined skill tags). Allow users to express interest in helping or search for projects needing specific skills.
+Implementation: Modify /newproject and /updateproject to capture structured help requests. Add new commands like /findhelp or /offerhelp.
+Value: Facilitates collaboration within the community.
+User Profiles/Skills:
+
+Description: Allow builders to create a simple profile within the bot, listing their skills, interests, or projects they're proud of.
+Implementation: New Airtable table for UserProfiles linked to Telegram ID. New commands like /myprofile and /setskill.
+Value: Enhances matchmaking, helps users get to know each other.
+Role-Based Help Requests:
+
+Description: A more formal way to request specific roles (e.g., "Need: UI/UX Designer for 2 weeks").
+Implementation: Could build on contributor matchmaking by adding duration, commitment level, etc., to help requests.
+Value: More effective at sourcing specific help.
+Tier 3: Integrations & Advanced Features
+Notion Sync or Embed:
+
+Description: Allow project data from Airtable to be synced to a Notion database or provide an easily embeddable view for a public/internal Notion page.
+Implementation: Could involve Airtable Automations syncing to Notion, or a separate service/script using both Airtable and Notion APIs. For embedding, explore Airtable's embed features.
+Value: Wider visibility of project data, leverages Notion's documentation strengths.
+Admin Panel/Dashboard (Simple):
+
+Description: A basic web interface (could be an internal tool or a more complex Airtable interface) for admins to view bot usage statistics, manage projects (e.g., edit/archive), or view logs.
+Implementation: Could leverage Airtable's own interface views and dashboards, or build a simple separate Flask web app.
+Value: Better oversight and management capabilities.
+Notification Preferences:
+
+Description: Allow users to customize which notifications they receive (e.g., opt-out of weekly digests, only get reminders for their own projects).
+Implementation: Store preferences in Airtable (linked to user ID) and check them before sending notifications.
+Value: Reduces notification fatigue, respects user preferences.
