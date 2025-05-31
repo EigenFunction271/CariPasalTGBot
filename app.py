@@ -478,18 +478,18 @@ def main() -> None:
     telegram_app.add_error_handler(error_handler)
 
     # Set up webhook if WEBHOOK_URL is defined (for Render deployment)
-    if WEBHOOK_URL:
-        webhook_url = f"{WEBHOOK_URL}/webhook"
-        logger.info(f"Setting webhook to {webhook_url}")
-        try:
-            telegram_app.bot.set_webhook(url=webhook_url)
-            logger.info("Webhook set successfully")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
-            raise
-    else:
-        logger.info("No WEBHOOK_URL set, will use polling in development")
 
+    
+    if WEBHOOK_URL:
+        logger.info(f"Setting webhook to {WEBHOOK_URL}/webhook")
+        # The line below is where the full URL including the path is constructed
+        success = telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+        if success:
+            logger.info("Webhook set successfully!")
+        else:
+            logger.error("Failed to set webhook.")
+  
+  
 # Entry point for Gunicorn or other WSGI servers
 application = flask_app
 
