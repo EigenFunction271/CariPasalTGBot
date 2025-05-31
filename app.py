@@ -400,14 +400,14 @@ telegram_app = None  # Initialize as None, will be set in main()
 def webhook():
     if telegram_app is None:
         return 'Bot not initialized', 500
-    # Process the update from Telegram
-    # This will be called by the `Application` instance from `python-telegram-bot`
-    # when it's configured to use webhooks.
-    # The actual processing is handled by the `telegram_app` dispatcher.
-    json_data = flask_request.get_json(force=True)
-    update = Update.de_json(json_data, telegram_app.bot)
-    telegram_app.update_queue.put(update)
-    return 'ok', 200
+    try:
+        json_data = flask_request.get_json(force=True)
+        update = Update.de_json(json_data, telegram_app.bot)
+        telegram_app.update_queue.put(update)
+        return 'ok', 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return f"Webhook error: {e}", 500
 
 @flask_app.route('/ping', methods=['GET'])
 def ping():
