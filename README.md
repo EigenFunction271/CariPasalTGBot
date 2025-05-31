@@ -105,6 +105,41 @@ A Telegram bot for Loophole Hackers community members to track and update their 
      - If you change the topic, update the `TELEGRAM_DIGEST_TOPIC_ID` in your `.env`
      - For private groups, you must use the `-100` prefix for the group ID
 
+### 2.3. Setting the Telegram Webhook (Windows/PowerShell)
+
+If your bot is not receiving updates, you may need to set the webhook manually. This is especially important if you are deploying on Render or using Windows, where the built-in PowerShell `curl` does not support the `-F` flag.
+
+**How to set the webhook:**
+
+- **Option 1: Use `curl.exe` (the real curl, if installed):**
+  ```powershell
+  curl.exe -F "url=https://caripasaltgbot.onrender.com/webhook" https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook
+  ```
+
+- **Option 2: Use PowerShell's `Invoke-RestMethod`:**
+  ```powershell
+  Invoke-RestMethod -Uri "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" -Method Post -Body @{ url = "https://caripasaltgbot.onrender.com/webhook" }
+  ```
+
+- **Option 3: Use Git Bash or WSL:**
+  ```bash
+  curl -F "url=https://caripasaltgbot.onrender.com/webhook" https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook
+  ```
+
+**After setting the webhook, verify it:**
+```powershell
+Invoke-RestMethod -Uri "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
+The `"url"` should end with `/webhook`.
+
+---
+
+### Troubleshooting: Webhook Not Working
+- If Telegram is POSTing to `/` (root) and you see 404s in your logs, your webhook is not set to `/webhook`.
+- Always check the webhook URL with `getWebhookInfo` after deployment.
+- If your code is supposed to set the webhook but it doesn't update, set it manually as above.
+- On Windows, always use `curl.exe` or `Invoke-RestMethod` instead of the PowerShell alias for `curl`.
+
 ### 3. Airtable Setup
 
 1. Create a new Airtable base:
@@ -306,3 +341,50 @@ flake8 .
 ## License
 
 [Add your license here] 
+
+## Deployment Bugs & Fixes Log
+
+### 1. ImportError: cannot import name 'Filters' from 'telegram.ext'
+- **Cause:** `python-telegram-bot` v20+ changed `Filters` to `filters` (lowercase, as a module).
+- **Fix:**
+  - Change all imports and usages from `Filters` to `filters`.
+  - Example: `from telegram.ext import filters` and `filters.TEXT & ~filters.COMMAND`.
+
+### 2. ImportError: cannot import name 'FIELD' from 'pyairtable.formulas'
+- **Cause:** The `FIELD` function is only available in `pyairtable` v2.2.0+.
+- **Fix:**
+  - Ensure `pyairtable>=2.2.0` in `requirements.txt`.
+  - Reinstall dependencies and redeploy.
+
+### 3. Webhook set to root URL instead of `/webhook`
+- **Symptom:** Telegram POSTs to `/` (root), logs show 404s, and `getWebhookInfo` shows the root URL.
+- **Cause:** Webhook was not set to `/webhook`.
+- **Fix:**
+  - Manually set the webhook using:
+    - `curl.exe -F "url=https://your-app.onrender.com/webhook" https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook`
+    - Or PowerShell: `Invoke-RestMethod -Uri "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" -Method Post -Body @{ url = "https://your-app.onrender.com/webhook" }`
+  - Always verify with `getWebhookInfo`.
+
+### 4. PowerShell curl does not support `-F` flag
+- **Symptom:** `curl -F ...` fails with `ParameterBindingException` in PowerShell.
+- **Cause:** PowerShell's `curl` is an alias for `Invoke-WebRequest`, which does not support `-F`.
+- **Fix:**
+  - Use `curl.exe` (the real curl), or use `Invoke-RestMethod` as shown above.
+
+### 5. RuntimeWarning: coroutine 'Queue.put' was never awaited
+- **Symptom:** Warning in logs: `coroutine 'Queue.put' was never awaited`.
+- **Cause:** In `python-telegram-bot` v20+, `update_queue.put` is async and must be awaited.
+- **Fix:**
+  - Change the Flask `/webhook` route to `async def` and use `await telegram_app.update_queue.put(update)`.
+  - Note: Flask async support may require a compatible server (e.g., Quart or FastAPI for full async).
+
+### 6. 404s for `/` (root) in logs
+- **Symptom:** Logs show repeated 404s for `/`.
+- **Cause:** No route is defined for `/` in Flask app. This is normal unless you want a homepage.
+- **Fix:**
+  - Ignore, or add a root route if desired:
+    ```python
+    @flask_app.route('/')
+    def home():
+        return 'Loophole Bot is running!', 200
+    ``` 
