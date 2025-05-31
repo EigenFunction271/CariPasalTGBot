@@ -1,7 +1,7 @@
 # airtable_client.py
 import os
-#from pyairtable import Table
-#from pyairtable.formulas import match
+from pyairtable import Table
+from pyairtable.formulas import match
 from dotenv import load_dotenv
 from datetime import datetime
 from datetime import datetime, timedelta
