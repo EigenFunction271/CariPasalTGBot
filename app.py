@@ -3,7 +3,7 @@ import os
 import logging
 from flask import Flask, request as flask_request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, Filters, CallbackContext, ConversationHandler, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 from dotenv import load_dotenv
 
 import airtable_client # Our Airtable interaction module
@@ -424,13 +424,13 @@ def main() -> None:
     new_project_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('newproject', new_project_start)],
         states={
-            ASK_PROJECT_NAME: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_one_liner)],
-            ASK_ONE_LINER: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_problem)],
-            ASK_PROBLEM: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_stack)],
-            ASK_STACK: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_link)],
-            ASK_LINK: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_status)], # Ideally validate URL here
+            ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)],
+            ASK_ONE_LINER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_problem)],
+            ASK_PROBLEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_stack)],
+            ASK_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_link)],
+            ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)], # Ideally validate URL here
             ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')],
-            ASK_HELP_NEEDED: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, new_project_save)],
+            ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -443,8 +443,8 @@ def main() -> None:
         ],
         states={
             CHOOSE_PROJECT_TO_UPDATE: [CallbackQueryHandler(handle_project_selection_for_update, pattern='^proj_')],
-            ASK_PROGRESS_UPDATE: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, ask_blockers)],
-            ASK_BLOCKERS: [MessageHandler(Filters.TEXT & ~Filters.COMMAND, save_project_update)],
+            ASK_PROGRESS_UPDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_blockers)],
+            ASK_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_project_update)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
@@ -454,11 +454,11 @@ def main() -> None:
         entry_points=[CommandHandler('searchprojects', search_projects_start)],
         states={
             ASK_SEARCH_KEYWORD: [
-                MessageHandler(Filters.TEXT & ~Filters.COMMAND, handle_search_keyword),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_keyword),
                 CallbackQueryHandler(handle_search_keyword, pattern='^search_skip_keyword$')
             ],
             ASK_SEARCH_STACK: [
-                MessageHandler(Filters.TEXT & ~Filters.COMMAND, handle_search_stack),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_stack),
                 CallbackQueryHandler(handle_search_stack, pattern='^search_skip_stack$')
             ],
             ASK_SEARCH_STATUS: [
