@@ -495,56 +495,80 @@ setup_all_handlers(telegram_app)
 
 # In ptb_thread_target function:
 def ptb_thread_target(app: Application, webhook_url_base: str):
-    logger.info("PTB thread target started.") # Changed log message slightly for clarity
+    logger.info("PTB thread target started.")
     loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        logger.info("PTB Thread: Initializing application...")
-        loop.run_until_complete(app.initialize()) # initialize() is async
-        logger.info("PTB Thread: Application initialized.")
+    asyncio.set_event_loop(loop) # Set this loop as the current loop for this thread
+
+    async def actual_ptb_operations():
+        """Encapsulates all async operations for the PTB application within this thread."""
+        logger.info("PTB Thread (async task): Initializing application...")
+        await app.initialize() # initialize() is a coroutine
+        logger.info("PTB Thread (async task): Application initialized.")
 
         if webhook_url_base:
             webhook_full_url = f"{webhook_url_base}/webhook"
-            logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
-            loop.run_until_complete(app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES)) # set_webhook() is async
-            logger.info("PTB Thread: Webhook set successfully.")
+            logger.info(f"PTB Thread (async task): Setting webhook to {webhook_full_url}")
+            await app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES) # set_webhook() is a coroutine
+            logger.info("PTB Thread (async task): Webhook set successfully.")
         else:
-            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
+            logger.warning("PTB Thread (async task): WEBHOOK_URL not provided, skipping webhook setup.")
         
-        logger.info("PTB Thread: Calling app.start() (this will block this thread and run the event loop for PTB)...")
-        # app.start() is a SYNCHRONOUS method that STARTS async components and RUNS the event loop.
-        # It will block this thread here until app.stop() is called elsewhere and the loop stops.
-        app.start() 
+        logger.info("PTB Thread (async task): Calling await app.start() (this will run PTB's main processing)...")
+        # Correctly await app.start() as it's a coroutine.
+        # This will run until app.stop() is called and completes.
+        await app.start() 
         
-        # Code below this line in the try block will only execute after app.start() returns (i.e., after app.stop() has been effective)
-        logger.info("PTB Thread: app.start() has returned, meaning the application's main loop has stopped.")
+        logger.info("PTB Thread (async task): await app.start() has completed (e.g., after app.stop()).")
 
-    except KeyboardInterrupt:
-        logger.info("PTB Thread: KeyboardInterrupt received.")
+    try:
+        # Run the main async logic for the PTB application.
+        # loop.run_until_complete will block this thread until actual_ptb_operations() finishes.
+        # actual_ptb_operations() will finish when await app.start() finishes.
+        loop.run_until_complete(actual_ptb_operations())
+    
+    except KeyboardInterrupt: # Or other signals that might stop the loop externally
+        logger.info("PTB Thread: KeyboardInterrupt or similar signal received, loop stopping.")
     except Exception as e:
         logger.error(f"PTB thread encountered an unhandled exception during its lifecycle: {e}", exc_info=True)
     finally:
         logger.info("PTB Thread: Reached finally block. Ensuring application is stopped if it was running.")
-        # Check if PTB components were started and try to stop them
+        # This block executes when loop.run_until_complete() returns,
+        # either normally or due to an exception.
+
         if app.running: 
-            logger.info("PTB Thread: Application is marked as running, attempting to stop components...")
-            # stop() is async and needs to be run in an event loop.
-            # The loop might be closed or closing, so this can be tricky.
-            # If the loop is still running here (e.g. if start() exited due to an error not KeyboardInterrupt), this is okay.
-            # If loop is closed, this might fail.
-            try:
-                if not loop.is_closed():
-                    loop.run_until_complete(app.stop())
-                    logger.info("PTB Thread: app.stop() completed.")
-                else:
-                    logger.warning("PTB Thread: Loop was already closed, can't run app.stop().")
-            except Exception as e_stop:
-                logger.error(f"PTB Thread: Exception during app.stop(): {e_stop}", exc_info=True)
+            logger.info("PTB Thread: Application is marked as running, attempting to stop components gracefully...")
+            if not loop.is_closed():
+                # app.stop() is also a coroutine
+                loop.run_until_complete(app.stop())
+                logger.info("PTB Thread: app.stop() completed.")
+            else:
+                logger.warning("PTB Thread: Loop was already closed, cannot run app.stop().")
         
         if not loop.is_closed():
+            # Gracefully shutdown any remaining tasks in the loop before closing
+            # This is good practice, though app.stop() should handle most PTB tasks.
+            try:
+                logger.info("PTB Thread: Gathering and cancelling any remaining tasks...")
+                tasks = asyncio.all_tasks(loop)
+                # Filter out the current task if this cleanup is somehow run as a task itself (unlikely here)
+                tasks_to_cancel = [t for t in tasks if t is not asyncio.current_task(loop)] # Defensive
+                
+                if tasks_to_cancel:
+                    for task in tasks_to_cancel:
+                        task.cancel()
+                    # Wait for all tasks to be cancelled
+                    loop.run_until_complete(asyncio.gather(*tasks_to_cancel, return_exceptions=True))
+                    logger.info("PTB Thread: Remaining tasks cancelled.")
+                else:
+                    logger.info("PTB Thread: No remaining tasks to cancel.")
+            except Exception as e_cancel:
+                logger.error(f"PTB Thread: Exception during task cancellation: {e_cancel}", exc_info=True)
+            
             loop.close()
             logger.info("PTB Thread: Event loop closed.")
         logger.info("PTB Thread: Thread target function finishing.")
+
+
 # Start the PTB thread only once.
 # The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
 # For Gunicorn, if you use --preload, this module-level code runs once in the master process.
