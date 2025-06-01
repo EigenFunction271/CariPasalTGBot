@@ -7,6 +7,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from dotenv import load_dotenv
 import asyncio
 import threading
+from datetime import datetime
 
 import airtable_client # Our Airtable interaction module
 
@@ -523,6 +524,7 @@ setup_all_handlers(telegram_app)
 # In ptb_thread_target function:
 def ptb_thread_target(app: Application, webhook_url_base: str):
     logger.info("PTB thread target started.")
+    # Create a new event loop for this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop) # Set this loop as the current loop for this thread
 
@@ -540,62 +542,83 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
         else:
             logger.warning("PTB Thread (async task): WEBHOOK_URL not provided, skipping webhook setup.")
         
-        logger.info("PTB Thread (async task): Calling await app.start() (this will run PTB's main processing)...")
-        # Correctly await app.start() as it's a coroutine.
-        # This will run until app.stop() is called and completes.
-        await app.start() 
-        
-        logger.info("PTB Thread (async task): await app.start() has completed (e.g., after app.stop()).")
+        logger.info("PTB Thread (async task): Calling await app.start() to start PTB components...")
+        await app.start() # This starts the Dispatcher and other components.
+                          # It prepares them to run within the active event loop.
+        logger.info("PTB Thread (async task): PTB components started via app.start(). Dispatcher is now active.")
+
+        # Keep this coroutine alive so the event loop (run by run_until_complete in the outer function)
+        # keeps running. The Dispatcher will use this running loop to process items from app.update_queue.
+        logger.info("PTB Thread (async task): Entering main keep-alive loop for dispatcher...")
+        try:
+            while True: 
+                await asyncio.sleep(1) # Sleep for 1 second. This keeps the loop spinning
+                                       # and allows other tasks (like the Dispatcher) to run.
+                                       # Adjust sleep time if needed, but 1s is often fine.
+        except asyncio.CancelledError:
+            # This will be raised if the task running actual_ptb_operations is cancelled,
+            # for example, during a graceful shutdown.
+            logger.info("PTB Thread (async task): Main keep-alive loop was cancelled.")
+            raise # Re-raise to allow outer try/except to handle cleanup.
+        finally:
+            logger.info("PTB Thread (async task): Exiting main keep-alive loop.")
+
 
     try:
         # Run the main async logic for the PTB application.
         # loop.run_until_complete will block this thread until actual_ptb_operations() finishes.
-        # actual_ptb_operations() will finish when await app.start() finishes.
+        # actual_ptb_operations() will now only finish if its keep-alive loop is broken (e.g., by an exception like CancelledError).
         loop.run_until_complete(actual_ptb_operations())
     
-    except KeyboardInterrupt: # Or other signals that might stop the loop externally
-        logger.info("PTB Thread: KeyboardInterrupt or similar signal received, loop stopping.")
+    except KeyboardInterrupt:
+        logger.info("PTB Thread: KeyboardInterrupt received by run_until_complete.")
+        # Optionally, if you want to signal the async part to stop:
+        # (This requires more complex signal handling to set an event that the while loop checks)
+    except asyncio.CancelledError:
+        logger.info("PTB Thread: actual_ptb_operations task was cancelled externally.")
     except Exception as e:
-        logger.error(f"PTB thread encountered an unhandled exception during its lifecycle: {e}", exc_info=True)
+        logger.error(f"PTB thread's run_until_complete encountered an unhandled exception: {e}", exc_info=True)
     finally:
-        logger.info("PTB Thread: Reached finally block. Ensuring application is stopped if it was running.")
-        # This block executes when loop.run_until_complete() returns,
-        # either normally or due to an exception.
-
+        logger.info("PTB Thread: Reached finally block of ptb_thread_target. Ensuring application is stopped.")
+        
         if app.running: 
             logger.info("PTB Thread: Application is marked as running, attempting to stop components gracefully...")
             if not loop.is_closed():
-                # app.stop() is also a coroutine
-                loop.run_until_complete(app.stop())
-                logger.info("PTB Thread: app.stop() completed.")
+                # Ensure stop is only called if the loop isn't already trying to shut down tasks from a CancelledError
+                try:
+                    loop.run_until_complete(app.stop()) # app.stop() is also a coroutine
+                    logger.info("PTB Thread: app.stop() completed.")
+                except Exception as e_stop:
+                    logger.error(f"PTB Thread: Exception during app.stop(): {e_stop}", exc_info=True)
             else:
-                logger.warning("PTB Thread: Loop was already closed, cannot run app.stop().")
+                logger.warning("PTB Thread: Loop was already closed when trying to run app.stop().")
         
         if not loop.is_closed():
-            # Gracefully shutdown any remaining tasks in the loop before closing
-            # This is good practice, though app.stop() should handle most PTB tasks.
+            # Attempt to gracefully close the loop and cancel any remaining tasks
             try:
-                logger.info("PTB Thread: Gathering and cancelling any remaining tasks...")
+                logger.info("PTB Thread: Performing final cleanup of event loop tasks...")
+                # Get all tasks for the loop
                 tasks = asyncio.all_tasks(loop)
-                # Filter out the current task if this cleanup is somehow run as a task itself (unlikely here)
-                tasks_to_cancel = [t for t in tasks if t is not asyncio.current_task(loop)] # Defensive
-                
-                if tasks_to_cancel:
-                    for task in tasks_to_cancel:
-                        task.cancel()
-                    # Wait for all tasks to be cancelled
-                    loop.run_until_complete(asyncio.gather(*tasks_to_cancel, return_exceptions=True))
+                if tasks:
+                    for task in tasks:
+                        if not task.done() and not task.cancelled():
+                            task.cancel()
+                    # Wait for tasks to cancel
+                    loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
                     logger.info("PTB Thread: Remaining tasks cancelled.")
                 else:
                     logger.info("PTB Thread: No remaining tasks to cancel.")
-            except Exception as e_cancel:
-                logger.error(f"PTB Thread: Exception during task cancellation: {e_cancel}", exc_info=True)
-            
-            loop.close()
-            logger.info("PTB Thread: Event loop closed.")
+                
+                # Run the loop until all tasks are surely done
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception as e_shutdown:
+                logger.error(f"PTB Thread: Error during loop shutdown tasks: {e_shutdown}", exc_info=True)
+            finally: # Ensure loop close is attempted
+                loop.close()
+                logger.info("PTB Thread: Event loop closed.")
         logger.info("PTB Thread: Thread target function finishing.")
 
-
+        
 # Start the PTB thread only once.
 # The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
 # For Gunicorn, if you use --preload, this module-level code runs once in the master process.
@@ -633,21 +656,36 @@ async def webhook(request: Request):
         logger.error(f"Webhook error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/ping")
-async def ping():
-    return {"status": "pong"}
-
 @app.get("/")
+@app.head("/")  # Add HEAD method support
 async def root():
     """Root endpoint for health checks and basic info."""
     return {
         "status": "ok",
         "service": "Loophole Project Tracker Bot",
+        "version": "1.0.0",
         "endpoints": {
             "webhook": "/webhook",
             "health": "/ping"
         }
     }
+
+@app.get("/ping")
+@app.head("/ping")  # Add HEAD method support
+async def ping():
+    """Health check endpoint."""
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+# Add graceful shutdown handling
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Handle graceful shutdown of the application."""
+    logger.info("Shutting down application...")
+    if telegram_app.running:
+        logger.info("Stopping PTB application...")
+        await telegram_app.stop()
+        logger.info("PTB application stopped.")
+    logger.info("Application shutdown complete.")
 
 # Entry point for Gunicorn or other ASGI servers
 application = app
