@@ -256,28 +256,33 @@ The `"url"` should end with `/webhook`.
 
 ### 6. Deployment on Render
 
-1. Create a new Web Service on Render:
+1. **Create a new Web Service on Render:**
    - Go to [Render Dashboard](https://dashboard.render.com)
    - Click "New +" and select "Web Service"
    - Connect your GitHub repository
 
-2. Configure the service:
+2. **Configure the service:**
    - Name: `loophole-project-tracker` (or your preferred name)
    - Environment: `Python 3`
    - Build Command: `pip install -r requirements.txt`
-   - Start Command: `gunicorn app:application`
+   - **Start Command:**
+     ```bash
+     gunicorn --preload --workers 1 app:application
+     ```
+     > **IMPORTANT:**
+     > Always use `--preload` and a single worker to ensure only one PTB thread is started. Using multiple workers without `--preload` can cause subtle bugs and race conditions. See the "Production Deployment Notes" section below for details and troubleshooting.
    - Plan: Free (or your preferred plan)
 
-3. Add Environment Variables:
+3. **Add Environment Variables:**
    - Go to the "Environment" tab
    - Add all variables from your `.env` file
    - For `WEBHOOK_URL`, use your Render URL: `https://your-app-name.onrender.com`
 
-4. Deploy:
+4. **Deploy:**
    - Click "Create Web Service"
    - Wait for the first deployment to complete
 
-5. Keep the service alive:
+5. **Keep the service alive:**
    - Render's free tier puts services to sleep after 15 minutes of inactivity
    - Use [UptimeRobot](https://uptimerobot.com/) to ping your service:
      - Create a free account
@@ -286,7 +291,7 @@ The `"url"` should end with `/webhook`.
        - URL: Your Render URL + `/ping`
        - Monitoring Interval: 5 minutes
 
-6. Set up weekly digest:
+6. **Set up weekly digest:**
    - Create a new Cron Job on Render
    - Schedule: Weekly (e.g., every Monday at 9 AM UTC)
    - Command: `python weekly_digest.py`
@@ -388,3 +393,29 @@ flake8 .
     def home():
         return 'Loophole Bot is running!', 200
     ``` 
+
+## Production Deployment Notes
+
+### Gunicorn and PTB Threading
+- **IMPORTANT:** For production, always use Gunicorn with `--preload` and a single worker to ensure only one PTB (python-telegram-bot) thread is started.
+- **Recommended command:**
+  ```bash
+  gunicorn --preload --workers 1 app:application
+  ```
+- If you use multiple workers without `--preload`, each worker will start its own PTB thread, which can cause subtle bugs and race conditions.
+- The code will log a warning if it detects multiple workers without `--preload`.
+
+### PTBUserWarning: per_message in ConversationHandler
+- You may see warnings like:
+  > PTBUserWarning: If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message.
+- This is informational. By default, `per_message=False` in PTB's `ConversationHandler`.
+- If your bot's button flows work as intended, you can ignore this warning.
+- If you want callback queries to be handled for every message, set `per_message=True` in your `ConversationHandler` (see PTB docs for trade-offs).
+
+### Troubleshooting
+- If your bot is not responding to updates, check:
+  - Only one PTB thread is running (see Gunicorn notes above)
+  - The webhook is set to `/webhook` and returns HTTP 200
+  - The PTB thread is not exiting immediately (check logs for shutdown or errors)
+  - Your handlers are registered and error handler is logging exceptions
+- For more, see the Deployment Bugs & Fixes Log at the end of this README. 

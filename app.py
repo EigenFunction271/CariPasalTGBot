@@ -487,6 +487,10 @@ def setup_all_handlers(app_instance: Application):
 setup_all_handlers(telegram_app)
 
 # --- PTB Threading Setup ---
+# IMPORTANT: For production, use Gunicorn with --preload to ensure only one PTB thread is started.
+# Example: gunicorn --preload --workers 1 app:application
+# If you use multiple workers without --preload, each worker will start its own PTB thread, which can cause issues.
+
 def ptb_thread_target(app: Application, webhook_url_base: str):
     """Runs the PTB application's event loop, sets webhook, and starts processing."""
     logger.info("PTB thread started.")
@@ -550,13 +554,14 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
             logger.error(f"Error during cleanup: {e}", exc_info=True)
         logger.info("PTB Thread: Cleanup complete.")
 
-        
 # Start the PTB thread only once.
 # The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
 # For Gunicorn, if you use --preload, this module-level code runs once in the master process.
 # If not using --preload, each worker will try to start a thread. This is usually fine as
 # they operate on the same `telegram_app` object, but `--preload` is cleaner for shared setup.
-if not os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("WERKZEUG_RUN_MAIN") == "true": # Check more reliably
+if not os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    if int(os.environ.get("WEB_CONCURRENCY", "1")) > 1 and not os.environ.get("PRELOAD", "0") == "1":
+        logger.warning("Multiple Gunicorn workers detected without --preload. This may start multiple PTB threads. Use --preload for a single PTB thread.")
     logger.info("Attempting to start PTB background thread...")
     ptb_background_thread = threading.Thread(target=ptb_thread_target, args=(telegram_app, WEBHOOK_URL), daemon=True)
     ptb_background_thread.start()
