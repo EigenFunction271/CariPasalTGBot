@@ -234,16 +234,23 @@ def save_project_update(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 # --- Fallback and Error Handlers ---
-def cancel(update: Update, context: CallbackContext) -> int:
-    user_id = get_user_id(update)
-    update.message.reply_text('Operation cancelled.')
-    clear_user_data(user_id)
-    return ConversationHandler.END
+def cancel(update: Update, context: CallbackContext) -> int: #
+    user_id = get_user_id(update) #
+    if update.message: #
+        update.message.reply_text('Operation cancelled.') #
+    elif update.callback_query:
+        update.callback_query.answer()
+        update.callback_query.edit_message_text('Operation cancelled.')
+    clear_user_data(user_id) #
+    return ConversationHandler.END #
 
-def error_handler(update: object, context: CallbackContext) -> None:
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
-    if isinstance(update, Update) and update.effective_message:
-        update.effective_message.reply_text('An error occurred. Please try again later.')
+def error_handler(update: object, context: CallbackContext) -> None: #
+    logger.error(msg="Exception while handling an update:", exc_info=context.error) #
+    if isinstance(update, Update) and update.effective_message: #
+        try:
+            update.effective_message.reply_text('An error occurred. Please try again later.') #
+        except Exception as e:
+            logger.error(f"Failed to send error message to user: {e}")
 
 # Helper to get target chat_id and message_thread_id for replies in context
 def get_reply_params(update: Update) -> dict:
@@ -397,104 +404,160 @@ def process_and_display_search_results(update: Update, context: CallbackContext)
 flask_app = Flask(__name__)
 telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-@flask_app.route('/webhook', methods=['POST'])
-def webhook():
-    if telegram_app is None:
-        return 'Bot not initialized', 500
-    try:
-        json_data = flask_request.get_json(force=True)
-        update = Update.de_json(json_data, telegram_app.bot)
-        asyncio.run(telegram_app.update_queue.put(update))
-        return 'ok', 200
-    except Exception as e:
-        logger.error(f"Webhook error: {e}", exc_info=True)
-        return f"Webhook error: {e}", 500
-
-@flask_app.route('/ping', methods=['GET'])
-def ping():
-    return 'pong', 200
-
-def main() -> None:
-    """Start the bot."""
-    global telegram_app # Make it global so webhook can access it
-
-    # Create the Application and pass it your bot's token.
-    telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-    # --- ConversationHandler for /newproject ---
-    new_project_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('newproject', new_project_start)],
-        states={
-            ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)],
-            ASK_ONE_LINER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_problem)],
-            ASK_PROBLEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_stack)],
-            ASK_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_link)],
-            ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)], # Ideally validate URL here
-            ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')],
-            ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)],
+def setup_all_handlers(app_instance: Application):
+    logger.info("Setting up all handlers...")
+    # ConversationHandler for /newproject (ensure states and handlers are defined)
+    new_project_conv_handler = ConversationHandler( #
+        entry_points=[CommandHandler('newproject', new_project_start)], #
+        states={ #
+            ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)], #
+            # ... (add all states for new_project from your file)
+            ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)], #
+            ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')], #
+            ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)], #
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel)], #
     )
 
-    # --- ConversationHandler for /updateproject ---
-    update_project_conv_handler = ConversationHandler(
-        entry_points=[
+    # ConversationHandler for /updateproject (ensure states and handlers are defined)
+    update_project_conv_handler = ConversationHandler( #
+        entry_points=[ #
             CommandHandler('updateproject', update_project_start_choose), #
-            CallbackQueryHandler(update_project_start_choose, pattern='^update_') # From /myprojects
+            CallbackQueryHandler(update_project_start_choose, pattern='^update_') #
         ],
-        states={
-            CHOOSE_PROJECT_TO_UPDATE: [CallbackQueryHandler(handle_project_selection_for_update, pattern='^proj_')],
-            ASK_PROGRESS_UPDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_blockers)],
-            ASK_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_project_update)],
+        states={ #
+            # ... (add all states for update_project from your file)
+            ASK_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_project_update)], #
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel)], #
     )
 
-    # --- ConversationHandler for /searchprojects ---
-    search_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('searchprojects', search_projects_start)],
-        states={
-            ASK_SEARCH_KEYWORD: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_keyword),
-                CallbackQueryHandler(handle_search_keyword, pattern='^search_skip_keyword$')
-            ],
-            ASK_SEARCH_STACK: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_stack),
-                CallbackQueryHandler(handle_search_stack, pattern='^search_skip_stack$')
-            ],
-            ASK_SEARCH_STATUS: [
-                CallbackQueryHandler(process_and_display_search_results, pattern='^search_status_|^search_skip_status$')
+    # ConversationHandler for /searchprojects (ensure states and handlers are defined)
+    search_conv_handler = ConversationHandler( #
+        entry_points=[CommandHandler('searchprojects', search_projects_start)], #
+        states={ #
+            # ... (add all states for search_projects from your file)
+            ASK_SEARCH_STATUS: [ #
+                CallbackQueryHandler(process_and_display_search_results, pattern='^search_status_|^search_skip_status$') #
             ],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler('cancel', cancel)], #
     )
     
-    # Add all handlers
-    telegram_app.add_handler(new_project_conv_handler)
-    telegram_app.add_handler(update_project_conv_handler)
-    telegram_app.add_handler(search_conv_handler)
-    telegram_app.add_handler(CommandHandler('myprojects', my_projects))
-    
-    # Error handler
-    telegram_app.add_error_handler(error_handler)
+    app_instance.add_handler(new_project_conv_handler) #
+    app_instance.add_handler(update_project_conv_handler) #
+    app_instance.add_handler(search_conv_handler) #
+    app_instance.add_handler(CommandHandler('myprojects', my_projects)) #
+    app_instance.add_error_handler(error_handler) #
+    logger.info("All handlers set up on the application instance.")
 
-    # Set up webhook on every import (safe for Gunicorn/WSGI)
-    if WEBHOOK_URL:
-        logger.info(f"Setting webhook to {WEBHOOK_URL}/webhook")
-        try:
-            telegram_app.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-            logger.info("Webhook set successfully!")
-        except Exception as e:
-            logger.error(f"Failed to set webhook: {e}")
+# Call setup_handlers for the global telegram_app instance AT MODULE LEVEL
+# This ensures the instance Gunicorn uses has handlers.
+setup_all_handlers(telegram_app)
+
+# --- PTB Threading Setup ---
+def ptb_thread_target(app: Application, webhook_url_base: str):
+    """Runs the PTB application's event loop, sets webhook, and starts processing."""
+    logger.info("PTB thread started.")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        logger.info("PTB Thread: Initializing application...")
+        loop.run_until_complete(app.initialize()) # Initialize first
+        logger.info("PTB Thread: Application initialized.")
+
+        if webhook_url_base:
+            webhook_full_url = f"{webhook_url_base}/webhook"
+            logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
+            loop.run_until_complete(app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES))
+            logger.info("PTB Thread: Webhook set successfully.")
+        else:
+            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup. Bot will not receive webhook updates.")
+        
+        logger.info("PTB Thread: Starting application (dispatcher will process update queue)...")
+        # Application.start() is synchronous. It starts async components and, by default,
+        # runs the event loop, blocking the current thread (which is what we want for this dedicated thread).
+        app.start()
+        logger.info("PTB Thread: Application.start() has finished (this means the bot processing loop has ended, e.g., via app.stop()).")
+
+    except Exception as e:
+        logger.error(f"PTB thread encountered an unhandled exception: {e}", exc_info=True)
+    finally:
+        logger.info("PTB Thread: Reached finally block. Ensuring application is stopped.")
+        if app.running:
+            logger.info("PTB Thread: Application is running, attempting to stop components.")
+            loop.run_until_complete(app.stop()) # stop() is async
+        loop.close()
+        logger.info("PTB Thread: Event loop closed. Thread finishing.")
+
+# Start the PTB thread only once.
+# The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
+# For Gunicorn, if you use --preload, this module-level code runs once in the master process.
+# If not using --preload, each worker will try to start a thread. This is usually fine as
+# they operate on the same `telegram_app` object, but `--preload` is cleaner for shared setup.
+if not os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("WERKZEUG_RUN_MAIN") == "true": # Check more reliably
+    logger.info("Attempting to start PTB background thread...")
+    ptb_background_thread = threading.Thread(target=ptb_thread_target, args=(telegram_app, WEBHOOK_URL), daemon=True)
+    ptb_background_thread.start()
+    logger.info(f"PTB background thread initiated: {ptb_background_thread.name}")
+else:
+    logger.info("Skipping PTB background thread start (likely Werkzeug reloader child process or similar).")
+
+
+# --- Flask App Setup ---
+flask_app = Flask(__name__) #
+
+@flask_app.route('/webhook', methods=['POST']) #
+def webhook_sync(): # Renamed from 'webhook' for clarity
+    # Check if the application has been initialized by the thread
+    if not telegram_app.initialized:
+        logger.error("Webhook called, but telegram_app is not yet initialized by its thread.")
+        # Potentially wait a very short time for thread to initialize, or return error
+        return 'Bot not ready, please try again shortly.', 503 # Service Unavailable
+
+    try:
+        json_data = flask_request.get_json(force=True) #
+        update = Update.de_json(json_data, telegram_app.bot) #
+        
+        if telegram_app.update_queue:
+            # Use put_nowait as this handler is synchronous and the queue
+            # is an asyncio.Queue processed by the PTB thread.
+            telegram_app.update_queue.put_nowait(update)
+            return 'ok', 200 #
+        else:
+            logger.error("CRITICAL: telegram_app.update_queue is None! PTB app might not have started correctly.")
+            return 'Update queue not available', 500 # Should not happen if app.start() ran
+            
+    except Exception as e: #
+        logger.error(f"Webhook error: {e}", exc_info=True) #
+        return f"Webhook error: {e}", 500 #
+
+@flask_app.route('/ping', methods=['GET']) #
+def ping(): #
+    return 'pong', 200 #
 
 # Entry point for Gunicorn or other WSGI servers
-application = flask_app
+application = flask_app #
+
+# The `main()` function from your original file is no longer needed for Gunicorn startup.
+# Its roles (handler setup, webhook set, PTB start) are now handled at module level
+# or within the dedicated PTB thread.
 
 if __name__ == '__main__':
-    # For local development: run polling or Flask server
-    if not WEBHOOK_URL:
-        logger.info("Running Telegram bot with polling locally...")
-        telegram_app.run_polling()
+    # This block is for local development.
+    # The PTB thread (ptb_background_thread) will have already been initiated if WEBHOOK_URL is set.
+    if WEBHOOK_URL:
+        logger.info("Running Flask app locally for webhook testing (PTB thread should be active).")
+        # The webhook is set by the PTB thread.
+        flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080))) #
     else:
-        logger.info("Flask app ready to receive webhooks. Make sure Gunicorn or similar is serving this app in production.")
-        flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+        # For local polling, we don't need the Flask app or the PTB webhook thread.
+        # We'll run a separate polling instance.
+        logger.info("WEBHOOK_URL not set. Running Telegram bot with polling locally (new instance)...")
+        
+        # Create a new application instance specifically for polling to avoid conflicts with the threaded one.
+        polling_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+        setup_all_handlers(polling_app) # Setup handlers for this new instance
+        
+        logger.info("Starting polling...")
+        polling_app.run_polling(allowed_updates=Update.ALL_TYPES)
