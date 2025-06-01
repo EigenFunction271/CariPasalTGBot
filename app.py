@@ -5,6 +5,7 @@ from flask import Flask, request as flask_request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 from dotenv import load_dotenv
+import asyncio
 
 import airtable_client # Our Airtable interaction module
 
@@ -397,13 +398,13 @@ flask_app = Flask(__name__)
 telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 @flask_app.route('/webhook', methods=['POST'])
-async def webhook():
+def webhook():
     if telegram_app is None:
         return 'Bot not initialized', 500
     try:
         json_data = flask_request.get_json(force=True)
         update = Update.de_json(json_data, telegram_app.bot)
-        await telegram_app.update_queue.put(update)
+        asyncio.run(telegram_app.update_queue.put(update))
         return 'ok', 200
     except Exception as e:
         logger.error(f"Webhook error: {e}", exc_info=True)
