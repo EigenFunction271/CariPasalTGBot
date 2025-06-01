@@ -80,8 +80,8 @@ async def ask_link(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
     user_data_store[user_id]["stack"] = update.message.text
     await update.message.reply_text(
-        "Please provide a GitHub or demo link (URL).\n"
-        "Note: This is optional for Idea stage projects, but required for MVP and Launched projects."
+        "Please provide a GitHub or demo link (URL) if you have one.\n"
+        "You can also type 'skip' to continue without a link."
     )
     return ASK_LINK
 
@@ -127,33 +127,18 @@ async def new_project_save(update: Update, context: CallbackContext) -> int:
         "Help Needed": user_data_store[user_id].get("help_needed"),
     }
 
-    # Only include GitHub/Demo if it's not empty
-    github_demo = user_data_store[user_id].get("github_demo_link", "").strip()
-    if github_demo:
+    # Only include GitHub/Demo if it's not empty and not 'skip'
+    github_demo = user_data_store[user_id].get("github_demo_link", "").strip().lower()
+    if github_demo and github_demo != 'skip':
         project_payload["GitHub/Demo"] = github_demo
 
     record = airtable_client.add_project(project_payload)
     if record:
-        status = project_payload["Status"].lower()
-        if status == "idea" and not github_demo:
-            await update.message.reply_text(
-                f"Project '{project_payload['Project Name']}' created successfully!\n"
-                "Note: Since this is an Idea stage project, a placeholder GitHub URL was added. "
-                "You can update it later when you have a repository."
-            )
-        else:
-            await update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
+        await update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
     else:
-        status = project_payload["Status"].lower()
-        if status in ["mvp", "launched"] and not github_demo:
-            await update.message.reply_text(
-                "Sorry, GitHub/Demo URL is required for MVP and Launched projects. "
-                "Please start over with /newproject and provide a valid URL."
-            )
-        else:
-            await update.message.reply_text(
-                "Sorry, there was an error creating your project. Please try again later."
-            )
+        await update.message.reply_text(
+            "Sorry, there was an error creating your project. Please try again later."
+        )
     
     clear_user_data(user_id)
     return ConversationHandler.END

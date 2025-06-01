@@ -30,7 +30,7 @@ def add_project(project_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         project_data: Dict containing project fields matching Airtable columns.
             Required fields: Project Name, Owner Telegram ID, One-liner, Problem Statement,
             Stack, Status, Help Needed
-            Optional fields: GitHub/Demo (required for MVP and Launched stages)
+            Optional fields: GitHub/Demo
     
     Returns:
         Created record dict if successful, None if failed
@@ -44,15 +44,6 @@ def add_project(project_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         for field in required_fields:
             if field not in project_data:
                 project_data.setdefault(field, "")
-
-        # Validate GitHub/Demo URL based on project status
-        status = project_data.get("Status", "").lower()
-        if status in ["mvp", "launched"] and not project_data.get("GitHub/Demo"):
-            logger.error("GitHub/Demo URL is required for MVP and Launched projects")
-            return None
-        elif status == "idea" and not project_data.get("GitHub/Demo"):
-            # For Idea stage, set a placeholder URL if none provided
-            project_data["GitHub/Demo"] = "https://github.com/loophole-hackers/ideation"
 
         project_data["Last Updated"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         created_record = projects_table.create(project_data)
