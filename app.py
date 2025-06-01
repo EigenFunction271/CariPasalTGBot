@@ -58,11 +58,25 @@ async def new_project_start(update: Update, context: CallbackContext) -> int:
     return ASK_PROJECT_NAME
 
 async def ask_one_liner(update: Update, context: CallbackContext) -> int:
-    logger.info(f"HANDLER TRIGGERED: ask_one_liner by user {update.effective_user.id}")
-    user_id = get_user_id(update)
-    user_data_store[user_id]["project_name"] = update.message.text
-    await update.message.reply_text("Great! Now, what's the one-liner tagline for your project?")
-    return ASK_ONE_LINER
+    """Handle the project name and ask for one-liner."""
+    try:
+        user_id = get_user_id(update)
+        project_name = update.message.text
+        logger.info(f"Received project name '{project_name}' from user {user_id}")
+        
+        user_data_store[user_id] = {"project_name": project_name}
+        logger.info(f"Stored project name in user_data_store for user {user_id}")
+        
+        await update.message.reply_text("Great! Now, what's the one-liner tagline for your project?")
+        logger.info(f"Sent one-liner request to user {user_id}")
+        return ASK_ONE_LINER
+    except Exception as e:
+        logger.error(f"Error in ask_one_liner: {e}", exc_info=True)
+        if update.effective_message:
+            await update.effective_message.reply_text(
+                "Sorry, there was an error processing your project name. Please try /newproject again."
+            )
+        return ConversationHandler.END
 
 async def ask_problem(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
@@ -455,15 +469,59 @@ def setup_all_handlers(app_instance: Application):
         new_project_conv_handler = ConversationHandler(
             entry_points=[CommandHandler('newproject', new_project_start)],
             states={
-                ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)],
-                ASK_ONE_LINER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_problem)],
-                ASK_PROBLEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_stack)],
-                ASK_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_link)],
-                ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)],
-                ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')],
-                ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)],
+                ASK_PROJECT_NAME: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        ask_one_liner,
+                        block=False
+                    )
+                ],
+                ASK_ONE_LINER: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        ask_problem,
+                        block=False
+                    )
+                ],
+                ASK_PROBLEM: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        ask_stack,
+                        block=False
+                    )
+                ],
+                ASK_STACK: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        ask_link,
+                        block=False
+                    )
+                ],
+                ASK_LINK: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        ask_status,
+                        block=False
+                    )
+                ],
+                ASK_STATUS: [
+                    CallbackQueryHandler(
+                        ask_help_needed,
+                        pattern='^status_'
+                    )
+                ],
+                ASK_HELP_NEEDED: [
+                    MessageHandler(
+                        filters.TEXT & ~filters.COMMAND,
+                        new_project_save,
+                        block=False
+                    )
+                ],
             },
             fallbacks=[CommandHandler('cancel', cancel)],
+            name="new_project",
+            persistent=False,
+            allow_reentry=True
         )
 
         # ConversationHandler for /updateproject
