@@ -1,15 +1,10 @@
 # airtable_client.py
 import os
-from pyairtable import Table
-from pyairtable.formulas import match
-from dotenv import load_dotenv
+from typing import Optional, List, Dict, Any
 from datetime import datetime
-from datetime import datetime, timedelta
-from pyairtable.formulas import OR, GTE, LTE, AND, EQ, FIND, LOWER, NOT # Added EQ, NOT for flexibility
-#from pyairtable.formulas import OR, GTE, LTE, AND, FIELD, FORMAT_DATETIME_STR
-#from pyairtable.formulas import STR_VALUE, FIND, LOWER, OR, AND # Add AND if not already there
-from telegram import Update
-from telegram.ext import CallbackContext, ConversationHandler
+from pyairtable import Table
+from pyairtable.formulas import match, OR, GTE, LTE, AND, EQ, FIND, LOWER, NOT
+from dotenv import load_dotenv
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,121 +22,168 @@ if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_PROJECTS_TABLE_NAME, AI
 projects_table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_PROJECTS_TABLE_NAME)
 updates_table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_UPDATES_TABLE_NAME)
 
-def add_project(project_data: dict):
+def add_project(project_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Adds a new project to the Projects table.
-    Expects project_data to contain keys matching Airtable fields.
-    - Project Name, Owner Telegram ID, One-liner, Problem Statement, 
-    - Stack, GitHub/Demo, Status, Help Needed
+    
+    Args:
+        project_data: Dict containing project fields matching Airtable columns.
+            Required fields: Project Name, Owner Telegram ID, One-liner, Problem Statement,
+            Stack, GitHub/Demo, Status, Help Needed
+    
+    Returns:
+        Created record dict if successful, None if failed
     """
     try:
-        # Ensure required fields are present as per PRD
-        required_fields = ["Project Name", "Owner Telegram ID", "One-liner", "Problem Statement", "Stack", "GitHub/Demo", "Status", "Help Needed"]
+        # Ensure required fields are present
+        required_fields = [
+            "Project Name", "Owner Telegram ID", "One-liner", "Problem Statement",
+            "Stack", "GitHub/Demo", "Status", "Help Needed"
+        ]
         for field in required_fields:
             if field not in project_data:
-                # Provide a default or raise an error
-                project_data.setdefault(field, "") # Example: default to empty string
+                project_data.setdefault(field, "")
 
         project_data["Last Updated"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         created_record = projects_table.create(project_data)
         return created_record
     except Exception as e:
-        print(f"Error adding project to Airtable: {e}")
+        logger.error(f"Error adding project to Airtable: {e}", exc_info=True)
         return None
 
-def get_projects_by_user(telegram_user_id: str):
+def get_projects_by_user(telegram_user_id: str) -> List[Dict[str, Any]]:
     """
     Fetches projects owned by a specific Telegram user.
-    Searches by 'Owner Telegram ID'.
+    
+    Args:
+        telegram_user_id: The Telegram user ID to search for
+    
+    Returns:
+        List of project records
     """
     try:
         formula = match({"Owner Telegram ID": str(telegram_user_id)})
         records = projects_table.all(formula=formula)
         return records
     except Exception as e:
-        print(f"Error fetching projects for user {telegram_user_id}: {e}")
+        logger.error(f"Error fetching projects for user {telegram_user_id}: {e}", exc_info=True)
         return []
 
-def add_update(update_data: dict):
+def add_update(update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Adds a new update to the Updates table.
-    Expects update_data:
-    - Project (Linked) (Airtable Record ID of the project)
-    - Update Text
-    - Blockers
-    - Updated By (Telegram ID)
-    Also updates 'Last Updated' in the linked Project record.
+    Adds a new update to the Updates table and updates the project's Last Updated field.
+    
+    Args:
+        update_data: Dict containing update fields:
+            - Project (Linked): List of project record IDs
+            - Update Text: The update content
+            - Blockers: Any blockers mentioned
+            - Updated By: Telegram ID of updater
+    
+    Returns:
+        Created update record if successful, None if failed
     """
     try:
-        update_data["Timestamp"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ") #
+        update_data["Timestamp"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         
         # Ensure required fields are present
         required_fields = ["Project (Linked)", "Update Text", "Blockers", "Updated By"]
         for field in required_fields:
             if field not in update_data:
-                 update_data.setdefault(field, "") # Example: default to empty string
+                update_data.setdefault(field, "")
 
         created_update_record = updates_table.create(update_data)
 
         # Update 'Last Updated' in the Projects table
         if created_update_record and 'Project (Linked)' in update_data and update_data['Project (Linked)']:
-            project_record_id = update_data['Project (Linked)'][0] # Assuming it's a list of one record ID
+            project_record_id = update_data['Project (Linked)'][0]
             projects_table.update(project_record_id, {"Last Updated": update_data["Timestamp"]})
         
         return created_update_record
     except Exception as e:
-        print(f"Error adding update to Airtable: {e}")
+        logger.error(f"Error adding update to Airtable: {e}", exc_info=True)
         return None
 
-def get_project_details(project_record_id: str):
+def get_project_details(project_record_id: str) -> Optional[Dict[str, Any]]:
     """
     Fetches details for a specific project by its Airtable Record ID.
+    
+    Args:
+        project_record_id: The Airtable record ID of the project
+    
+    Returns:
+        Project record if found, None if not found or error
     """
     try:
         record = projects_table.get(project_record_id)
         return record
     except Exception as e:
-        print(f"Error fetching project details for {project_record_id}: {e}")
+        logger.error(f"Error fetching project details for {project_record_id}: {e}", exc_info=True)
         return None
     
-def get_projects_created_since(date_since: datetime):
+def get_projects_created_since(date_since: datetime) -> List[Dict[str, Any]]:
     """
     Fetches projects created on or after a given date.
-    (Note: This relies on "Last Updated" as a proxy for creation/recent significant activity)
+    
+    Args:
+        date_since: The datetime to search from
+    
+    Returns:
+        List of project records
     """
     try:
-        # pyairtable's GTE should handle Python datetime objects correctly.
-        formula = GTE("Last Updated", date_since) # Use field name as string
+        formula = GTE("Last Updated", date_since)
         records = projects_table.all(formula=formula, sort=["-Last Updated"])
         return records
     except Exception as e:
-        print(f"Error fetching projects created since {date_since}: {e}")
+        logger.error(f"Error fetching projects created since {date_since}: {e}", exc_info=True)
         return []
 
-def get_updates_since(date_since: datetime):
+def get_updates_since(date_since: datetime) -> List[Dict[str, Any]]:
     """
     Fetches updates from the Updates table created on or after a given date.
+    
+    Args:
+        date_since: The datetime to search from
+    
+    Returns:
+        List of update records
     """
     try:
-        formula = GTE("Timestamp", date_since) # Use field name as string
+        formula = GTE("Timestamp", date_since)
         records = updates_table.all(formula=formula, sort=["Project (Linked)", "-Timestamp"])
         return records
     except Exception as e:
-        print(f"Error fetching updates since {date_since}: {e}")
+        logger.error(f"Error fetching updates since {date_since}: {e}", exc_info=True)
         return []
 
-def get_project_name_from_id(project_record_id: str):
-    """Helper to get project name from its record ID for the digest."""
-    project_details = get_project_details(project_record_id) # Existing function
+def get_project_name_from_id(project_record_id: str) -> str:
+    """
+    Helper to get project name from its record ID.
+    
+    Args:
+        project_record_id: The Airtable record ID of the project
+    
+    Returns:
+        Project name or "Unknown Project" if not found
+    """
+    project_details = get_project_details(project_record_id)
     if project_details and 'fields' in project_details and 'Project Name' in project_details['fields']:
         return project_details['fields']['Project Name']
     return "Unknown Project"
 
-def search_projects(criteria: dict):
+def search_projects(criteria: Dict[str, str]) -> List[Dict[str, Any]]:
     """
     Searches projects based on given criteria.
-    Criteria is a dict: {"keyword": "...", "stack": "...", "status": "..."}
-    All criteria are optional. If multiple are provided, they are ANDed.
+    
+    Args:
+        criteria: Dict containing search parameters:
+            - keyword: Search in name, tagline, problem statement
+            - stack: Filter by tech stack
+            - status: Filter by project status
+    
+    Returns:
+        List of matching project records
     """
     try:
         formulas = []
@@ -149,8 +191,6 @@ def search_projects(criteria: dict):
         keyword = criteria.get("keyword")
         if keyword and keyword.strip():
             keyword_lower = keyword.strip().lower()
-            # Search in Project Name, One-liner, Problem Statement
-            # FIND expects the string to search for, then the string to search in (which can be a field or LOWER(field))
             keyword_formula = OR(
                 FIND(keyword_lower, LOWER("Project Name")),
                 FIND(keyword_lower, LOWER("One-liner")),
@@ -160,63 +200,21 @@ def search_projects(criteria: dict):
 
         stack = criteria.get("stack")
         if stack and stack.strip():
-            # Search for substring in the "Stack" field (case-insensitive)
             stack_formula = FIND(stack.strip().lower(), LOWER("Stack"))
             formulas.append(stack_formula)
             
         status = criteria.get("status")
         if status and status.strip():
-            # Use EQ for direct equality comparison
             status_formula = EQ("Status", status.strip())
             formulas.append(status_formula)
 
         if not formulas:
             return [] 
 
-        # Combine all formula parts with AND
         final_formula = AND(*formulas) if len(formulas) > 1 else formulas[0]
         
         records = projects_table.all(formula=final_formula, sort=["-Last Updated"])
         return records
     except Exception as e:
-        print(f"Error searching projects with criteria {criteria}: {e}")
+        logger.error(f"Error searching projects with criteria {criteria}: {e}", exc_info=True)
         return []
-
-def error_handler(update: object, context: CallbackContext) -> None:
-    """Log errors caused by updates."""
-    logger.error("Exception while handling an update:", exc_info=context.error)
-    
-    # Log the update that caused the error
-    if update:
-        logger.error(f"Update that caused error: {update.to_dict() if hasattr(update, 'to_dict') else update}")
-    
-    # Log the error context
-    logger.error(f"Error context: {context.error.__class__.__name__}: {str(context.error)}")
-    
-    # Try to notify the user
-    if isinstance(update, Update) and update.effective_message:
-        try:
-            update.effective_message.reply_text(
-                'An error occurred while processing your request. Please try again later.'
-            )
-        except Exception as e:
-            logger.error(f"Failed to send error message to user: {e}")
-
-def log_handler_errors(func):
-    """Decorator to log errors in handlers."""
-    async def wrapper(update: Update, context: CallbackContext):
-        try:
-            return await func(update, context)
-        except Exception as e:
-            logger.error(f"Error in handler {func.__name__}: {e}", exc_info=True)
-            if update and update.effective_message:
-                try:
-                    await update.effective_message.reply_text(
-                        'An error occurred. Please try again later.'
-                    )
-                except Exception as reply_error:
-                    logger.error(f"Failed to send error message: {reply_error}")
-            return ConversationHandler.END
-    return wrapper
-
-# You can add more utility functions here as needed, e.g., to update specific project fields.

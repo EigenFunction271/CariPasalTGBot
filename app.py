@@ -410,6 +410,32 @@ telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 def setup_all_handlers(app_instance: Application):
     logger.info("Setting up all handlers...")
     try:
+        # Add a start command handler
+        async def start_command(update: Update, context: CallbackContext) -> None:
+            """Send a message when the command /start is issued."""
+            user = update.effective_user
+            logger.info(f"User {user.id} ({user.first_name}) started the bot")
+            await update.message.reply_text(
+                f"Hi {user.first_name}! I'm the Loophole Project Tracker bot. "
+                "Use /newproject to create a new project, or /help to see all commands."
+            )
+
+        # Add help command handler
+        async def help_command(update: Update, context: CallbackContext) -> None:
+            """Send a message when the command /help is issued."""
+            user = update.effective_user
+            logger.info(f"User {user.id} ({user.first_name}) requested help")
+            help_text = (
+                "*Available Commands:*\n\n"
+                "/newproject - Create a new project\n"
+                "/updateproject - Update an existing project\n"
+                "/myprojects - View your projects\n"
+                "/searchprojects - Search for projects\n"
+                "/help - Show this help message\n"
+                "/cancel - Cancel current operation"
+            )
+            await update.message.reply_text(help_text, parse_mode='Markdown')
+
         # ConversationHandler for /newproject
         new_project_conv_handler = ConversationHandler(
             entry_points=[CommandHandler('newproject', new_project_start)],
@@ -458,6 +484,8 @@ def setup_all_handlers(app_instance: Application):
             fallbacks=[CommandHandler('cancel', cancel)],
         )
         
+        app_instance.add_handler(CommandHandler('start', start_command))
+        app_instance.add_handler(CommandHandler('help', help_command))
         app_instance.add_handler(new_project_conv_handler)
         app_instance.add_handler(update_project_conv_handler)
         app_instance.add_handler(search_conv_handler)
@@ -587,15 +615,16 @@ else:
 async def webhook(request: Request):
     try:
         json_data = await request.json()
-        logger.info(f"Received webhook update: {json_data.get('message', {}).get('text', 'No text')}")
+        update_id = json_data.get('update_id', 'unknown')
+        logger.info(f"Received webhook update {update_id}")
         
         update = Update.de_json(json_data, telegram_app.bot)
         
         if hasattr(telegram_app, 'update_queue') and telegram_app.update_queue:
-            logger.info("Putting update in queue...")
-            await telegram_app.update_queue.put(update)  # Now properly awaited
-            logger.info("Update successfully queued")
-            return {"status": "ok"}
+            logger.info(f"Processing update {update_id}...")
+            await telegram_app.update_queue.put(update)
+            logger.info(f"Update {update_id} successfully queued")
+            return {"status": "ok", "update_id": update_id}
         else:
             logger.error("CRITICAL: telegram_app.update_queue is None! PTB app might not have started correctly.")
             raise HTTPException(status_code=500, detail="Update queue not available")
@@ -607,6 +636,18 @@ async def webhook(request: Request):
 @app.get("/ping")
 async def ping():
     return {"status": "pong"}
+
+@app.get("/")
+async def root():
+    """Root endpoint for health checks and basic info."""
+    return {
+        "status": "ok",
+        "service": "Loophole Project Tracker Bot",
+        "endpoints": {
+            "webhook": "/webhook",
+            "health": "/ping"
+        }
+    }
 
 # Entry point for Gunicorn or other ASGI servers
 application = app
