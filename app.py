@@ -49,67 +49,64 @@ def clear_user_data(user_id: str):
         del user_data_store[user_id]
 
 # --- /newproject Command Handlers ---
-def new_project_start(update: Update, context: CallbackContext) -> int:
+async def new_project_start(update: Update, context: CallbackContext) -> int:
     logger.info(f"HANDLER TRIGGERED: new_project_start by user {update.effective_user.id}")
     user_id = get_user_id(update)
-    clear_user_data(user_id) # Clear any previous data
+    clear_user_data(user_id)
     user_data_store[user_id] = {"telegram_id": user_id}
-    update.message.reply_text("Let's create a new project! What's the project name?")
+    await update.message.reply_text("Let's create a new project! What's the project name?")
     return ASK_PROJECT_NAME
 
-def ask_one_liner(update: Update, context: CallbackContext) -> int:
-    logger.info(f"HANDLER TRIGGERED: new_one_liner by user {update.effective_user.id}")
+async def ask_one_liner(update: Update, context: CallbackContext) -> int:
+    logger.info(f"HANDLER TRIGGERED: ask_one_liner by user {update.effective_user.id}")
     user_id = get_user_id(update)
-    user_data_store[user_id]["project_name"] = update.message.text #
-    update.message.reply_text("Great! Now, what's the one-liner tagline for your project?") #
+    user_data_store[user_id]["project_name"] = update.message.text
+    await update.message.reply_text("Great! Now, what's the one-liner tagline for your project?")
     return ASK_ONE_LINER
 
-def ask_problem(update: Update, context: CallbackContext) -> int:
+async def ask_problem(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["one_liner"] = update.message.text #
-    update.message.reply_text("What problem is this project trying to solve? (Problem Statement)") #
+    user_data_store[user_id]["one_liner"] = update.message.text
+    await update.message.reply_text("What problem is this project trying to solve? (Problem Statement)")
     return ASK_PROBLEM
 
-def ask_stack(update: Update, context: CallbackContext) -> int:
+async def ask_stack(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["problem_statement"] = update.message.text #
-    update.message.reply_text("What's the tech stack? (e.g., Python, React, Firebase)") #
+    user_data_store[user_id]["problem_statement"] = update.message.text
+    await update.message.reply_text("What's the tech stack? (e.g., Python, React, Firebase)")
     return ASK_STACK
 
-def ask_link(update: Update, context: CallbackContext) -> int:
+async def ask_link(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["stack"] = update.message.text #
-    update.message.reply_text("Please provide a GitHub or demo link (URL).") #
+    user_data_store[user_id]["stack"] = update.message.text
+    await update.message.reply_text("Please provide a GitHub or demo link (URL).")
     return ASK_LINK
 
-def ask_status(update: Update, context: CallbackContext) -> int:
+async def ask_status(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["github_demo_link"] = update.message.text #
-    keyboard = [ #
+    user_data_store[user_id]["github_demo_link"] = update.message.text
+    keyboard = [
         [InlineKeyboardButton("Idea", callback_data="status_Idea")],
         [InlineKeyboardButton("MVP", callback_data="status_MVP")],
         [InlineKeyboardButton("Launched", callback_data="status_Launched")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    update.message.reply_text("What's the current stage of the project?", reply_markup=reply_markup)
+    await update.message.reply_text("What's the current stage of the project?", reply_markup=reply_markup)
     return ASK_STATUS
 
-def ask_help_needed(update: Update, context: CallbackContext) -> int:
+async def ask_help_needed(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = get_user_id(update)
-    
-    # Extract status from callback_data (e.g., "status_Idea" -> "Idea")
-    status = query.data.split('_')[1] 
-    user_data_store[user_id]["status"] = status #
-    
-    query.edit_message_text(text=f"Project stage set to: {status}")
-    context.bot.send_message(chat_id=user_id, text="What kind of help do you need for this project? (e.g., 'Frontend dev', 'User feedback')") #
+    status = query.data.split('_')[1]
+    user_data_store[user_id]["status"] = status
+    await query.edit_message_text(text=f"Project stage set to: {status}")
+    await context.bot.send_message(chat_id=user_id, text="What kind of help do you need for this project? (e.g., 'Frontend dev', 'User feedback')")
     return ASK_HELP_NEEDED
 
-def new_project_save(update: Update, context: CallbackContext) -> int:
+async def new_project_save(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["help_needed"] = update.message.text #
+    user_data_store[user_id]["help_needed"] = update.message.text
 
     project_payload = {
         "Project Name": user_data_store[user_id].get("project_name"),
@@ -124,20 +121,20 @@ def new_project_save(update: Update, context: CallbackContext) -> int:
 
     record = airtable_client.add_project(project_payload)
     if record:
-        update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
+        await update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
     else:
-        update.message.reply_text("Sorry, there was an error creating your project. Please try again later.")
+        await update.message.reply_text("Sorry, there was an error creating your project. Please try again later.")
     
     clear_user_data(user_id)
     return ConversationHandler.END
 
 # --- /myprojects Command Handler ---
-def my_projects(update: Update, context: CallbackContext) -> None:
+async def my_projects(update: Update, context: CallbackContext) -> None:
     user_id = get_user_id(update)
     projects = airtable_client.get_projects_by_user(user_id)
 
     if not projects:
-        update.message.reply_text("You don't have any projects yet. Use /newproject to create one!")
+        await update.message.reply_text("You don't have any projects yet. Use /newproject to create one!")
         return
 
     message = "Here are your projects:\n\n"
@@ -145,40 +142,36 @@ def my_projects(update: Update, context: CallbackContext) -> None:
     for project in projects:
         fields = project.get('fields', {})
         project_name = fields.get("Project Name", "N/A")
-        one_liner = fields.get("One-liner", "") #
-        status = fields.get("Status", "N/A") #
+        one_liner = fields.get("One-liner", "")
+        status = fields.get("Status", "N/A")
         message += f"- *{project_name}* ({status}): {one_liner}\n"
-        # Add button to update this specific project
         keyboard_buttons.append(
             [InlineKeyboardButton(f"Update '{project_name}'", callback_data=f"update_{project['id']}")]
         )
     
     reply_markup = InlineKeyboardMarkup(keyboard_buttons)
-    update.message.reply_text(message, parse_mode='Markdown', reply_markup=reply_markup)
-    # The callback_data 'update_{project_id}' will be handled by update_project_start_choose or a specific callback handler
+    await update.message.reply_text(message, parse_mode='Markdown', reply_markup=reply_markup)
 
 # --- /updateproject Command Handlers ---
-def update_project_start_choose(update: Update, context: CallbackContext) -> int:
+async def update_project_start_choose(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    clear_user_data(user_id) # Clear any previous state
+    clear_user_data(user_id)
     user_data_store[user_id] = {"telegram_id": user_id}
 
-    query = update.callback_query 
-    # This function can be triggered by /myprojects inline button or directly by /updateproject command
-    
-    if query: # Called from inline button in /myprojects
-        query.answer()
+    query = update.callback_query
+    if query:
+        await query.answer()
         project_id_to_update = query.data.split('_')[1]
         user_data_store[user_id]["project_to_update_id"] = project_id_to_update
         project_details = airtable_client.get_project_details(project_id_to_update)
         project_name = project_details.get('fields', {}).get('Project Name', 'this project') if project_details else 'this project'
         
-        query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?")
+        await query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?")
         return ASK_PROGRESS_UPDATE
-    else: # Called by /updateproject command
+    else:
         projects = airtable_client.get_projects_by_user(user_id)
         if not projects:
-            update.message.reply_text("You don't have any projects to update. Use /newproject to create one first.")
+            await update.message.reply_text("You don't have any projects to update. Use /newproject to create one first.")
             return ConversationHandler.END
 
         keyboard = []
@@ -187,72 +180,194 @@ def update_project_start_choose(update: Update, context: CallbackContext) -> int
             keyboard.append([InlineKeyboardButton(project_name, callback_data=f"proj_{project['id']}")])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text("Which project do you want to update?", reply_markup=reply_markup)
+        await update.message.reply_text("Which project do you want to update?", reply_markup=reply_markup)
         return CHOOSE_PROJECT_TO_UPDATE
 
-def handle_project_selection_for_update(update: Update, context: CallbackContext) -> int:
+async def handle_project_selection_for_update(update: Update, context: CallbackContext) -> int:
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = get_user_id(update)
     
-    project_id = query.data.split('_')[1] # e.g., "proj_{id}"
+    project_id = query.data.split('_')[1]
     user_data_store[user_id]["project_to_update_id"] = project_id
     project_details = airtable_client.get_project_details(project_id)
     project_name = project_details.get('fields', {}).get('Project Name', 'this project') if project_details else 'this project'
 
-    query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?") #
+    await query.edit_message_text(text=f"Updating '{project_name}'. What progress did you make this week?")
     return ASK_PROGRESS_UPDATE
 
-def ask_blockers(update: Update, context: CallbackContext) -> int:
+async def ask_blockers(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["progress_update"] = update.message.text #
-    update.message.reply_text("Any blockers this week? (Type 'None' if no blockers)") #
+    user_data_store[user_id]["progress_update"] = update.message.text
+    await update.message.reply_text("Any blockers this week? (Type 'None' if no blockers)")
     return ASK_BLOCKERS
 
-def save_project_update(update: Update, context: CallbackContext) -> int:
+async def save_project_update(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
-    user_data_store[user_id]["blockers"] = update.message.text #
+    user_data_store[user_id]["blockers"] = update.message.text
 
     project_id = user_data_store[user_id].get("project_to_update_id")
     if not project_id:
-        update.message.reply_text("Error: Could not find the project to update. Please try starting the update process again.")
+        await update.message.reply_text("Error: Could not find the project to update. Please try starting the update process again.")
         clear_user_data(user_id)
         return ConversationHandler.END
 
     update_payload = {
-        "Project (Linked)": [project_id], # Needs to be a list of record IDs for linked records
+        "Project (Linked)": [project_id],
         "Update Text": user_data_store[user_id].get("progress_update"),
         "Blockers": user_data_store[user_id].get("blockers"),
-        "Updated By": user_id, #
+        "Updated By": user_id,
     }
 
     record = airtable_client.add_update(update_payload)
     if record:
         project_details = airtable_client.get_project_details(project_id)
         project_name = project_details.get('fields', {}).get('Project Name', 'The project') if project_details else 'The project'
-        update.message.reply_text(f"Update for '{project_name}' saved successfully!")
+        await update.message.reply_text(f"Update for '{project_name}' saved successfully!")
     else:
-        update.message.reply_text("Sorry, there was an error saving your update. Please try again.")
+        await update.message.reply_text("Sorry, there was an error saving your update. Please try again.")
     
     clear_user_data(user_id)
     return ConversationHandler.END
 
-# --- Fallback and Error Handlers ---
-def cancel(update: Update, context: CallbackContext) -> int: #
-    user_id = get_user_id(update) #
-    if update.message: #
-        update.message.reply_text('Operation cancelled.') #
-    elif update.callback_query:
-        update.callback_query.answer()
-        update.callback_query.edit_message_text('Operation cancelled.')
-    clear_user_data(user_id) #
-    return ConversationHandler.END #
+# --- /searchprojects Command Handlers ---
+async def search_projects_start(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    clear_user_data(user_id)
+    user_data_store[user_id] = {"search_criteria": {}}
+    
+    reply_params = get_reply_params(update)
 
-def error_handler(update: object, context: CallbackContext) -> None: #
-    logger.error(msg="Exception while handling an update:", exc_info=context.error) #
-    if isinstance(update, Update) and update.effective_message: #
+    keyboard = [[InlineKeyboardButton("Skip Keyword", callback_data="search_skip_keyword")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "Let's find some projects! Enter a keyword to search in name, tagline, or problem statement (or skip):",
+        reply_markup=reply_markup
+    )
+    return ASK_SEARCH_KEYWORD
+
+async def handle_search_keyword(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    query = update.callback_query
+    
+    effective_update_for_context = query if query else update
+    reply_params = get_reply_params(effective_update_for_context)
+
+    if query:
+        await query.answer()
+        await query.edit_message_text("Keyword skipped.")
+    else:
+        user_data_store[user_id]["search_criteria"]["keyword"] = update.message.text
+        await update.message.reply_text("Got it. Keyword set.")
+
+    keyboard = [[InlineKeyboardButton("Skip Stack", callback_data="search_skip_stack")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await context.bot.send_message(
+        **reply_params,
+        text="Enter a tech stack to filter by (e.g., Python, React) (or skip):",
+        reply_markup=reply_markup
+    )
+    return ASK_SEARCH_STACK
+
+async def handle_search_stack(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    query = update.callback_query
+    
+    effective_update_for_context = query if query else update
+    reply_params = get_reply_params(effective_update_for_context)
+
+    if query:
+        await query.answer()
+        await query.edit_message_text("Stack filter skipped.")
+    else:
+        user_data_store[user_id]["search_criteria"]["stack"] = update.message.text
+        await update.message.reply_text("Tech stack filter set.")
+
+    status_keyboard = [
+        [InlineKeyboardButton("Idea", callback_data="search_status_Idea")],
+        [InlineKeyboardButton("MVP", callback_data="search_status_MVP")],
+        [InlineKeyboardButton("Launched", callback_data="search_status_Launched")],
+        [InlineKeyboardButton("Any Status", callback_data="search_skip_status")]
+    ]
+    reply_markup = InlineKeyboardMarkup(status_keyboard)
+    await context.bot.send_message(
+        **reply_params,
+        text="Filter by project status (or choose any):",
+        reply_markup=reply_markup
+    )
+    return ASK_SEARCH_STATUS
+
+async def process_and_display_search_results(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    query = update.callback_query
+    
+    reply_params = {"chat_id": query.message.chat_id}
+    if query.message.is_topic_message:
+        reply_params["message_thread_id"] = query.message.message_thread_id
+        
+    await query.answer()
+
+    if not query.data == "search_skip_status":
+        status = query.data.split('_')[2]
+        user_data_store[user_id]["search_criteria"]["status"] = status
+        await query.edit_message_text(f"Status filter set to: {status}")
+    else:
+        await query.edit_message_text("Status filter skipped (any status).")
+
+    criteria = user_data_store[user_id].get("search_criteria", {})
+    
+    if not any(criteria.values()):
+        await context.bot.send_message(
+            **reply_params,
+            text="No search criteria provided. Please try again with at least one filter."
+        )
+        clear_user_data(user_id)
+        return ConversationHandler.END
+
+    await context.bot.send_message(**reply_params, text=f"Searching with criteria: {criteria}...")
+    
+    results = airtable_client.search_projects(criteria)
+
+    if not results:
+        await context.bot.send_message(**reply_params, text="No projects found matching your criteria.")
+    else:
+        message_parts = ["*Search Results:*\n\n"]
+        for project in results[:10]:
+            fields = project.get('fields', {})
+            project_name = fields.get("Project Name", "N/A")
+            one_liner = fields.get("One-liner", "")
+            status = fields.get("Status", "N/A")
+            stack = fields.get("Stack", "N/A")
+            message_parts.append(f"- *{project_name}* ({status})\n")
+            message_parts.append(f"  _Stack:_ {stack}\n")
+            message_parts.append(f"  _Tagline:_ {one_liner}\n\n")
+        
+        if len(results) > 10:
+            message_parts.append(f"\n...and {len(results) - 10} more. Consider refining your search.")
+        
+        final_message = "".join(message_parts)
+        await context.bot.send_message(**reply_params, text=final_message, parse_mode='Markdown')
+
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+# --- Fallback and Error Handlers ---
+async def cancel(update: Update, context: CallbackContext) -> int:
+    user_id = get_user_id(update)
+    if update.message:
+        await update.message.reply_text('Operation cancelled.')
+    elif update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text('Operation cancelled.')
+    clear_user_data(user_id)
+    return ConversationHandler.END
+
+async def error_handler(update: object, context: CallbackContext) -> None:
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
         try:
-            update.effective_message.reply_text('An error occurred. Please try again later.') #
+            await update.effective_message.reply_text('An error occurred. Please try again later.')
         except Exception as e:
             logger.error(f"Failed to send error message to user: {e}")
 
@@ -263,146 +378,30 @@ def get_reply_params(update: Update) -> dict:
         params["message_thread_id"] = update.effective_message.message_thread_id
     return params
 
-# --- /searchprojects Command Handlers ---
-def search_projects_start(update: Update, context: CallbackContext) -> int:
-    user_id = get_user_id(update) # For user_data_store key
-    clear_user_data(user_id)
-    user_data_store[user_id] = {"search_criteria": {}}
-    
-    reply_params = get_reply_params(update) # Get chat_id and potential message_thread_id
-
-    keyboard = [[InlineKeyboardButton("Skip Keyword", callback_data="search_skip_keyword")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # If the initial command is from a topic, this reply_text will go to the topic.
-    # If it's a DM, it goes to the DM.
-    update.message.reply_text( 
-        "Let's find some projects! Enter a keyword to search in name, tagline, or problem statement (or skip):",
-        reply_markup=reply_markup
+# --- Command Handlers in setup_all_handlers ---
+async def start_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /start is issued."""
+    user = update.effective_user
+    logger.info(f"User {user.id} ({user.first_name}) started the bot")
+    await update.message.reply_text(
+        f"Hi {user.first_name}! I'm the Loophole Project Tracker bot. "
+        "Use /newproject to create a new project, or /help to see all commands."
     )
-    return ASK_SEARCH_KEYWORD
 
-def handle_search_keyword(update: Update, context: CallbackContext) -> int:
-    user_id = get_user_id(update) # For user_data_store key
-    query = update.callback_query
-    
-    # Determine where to send the next prompt based on original interaction
-    # If original update was a message, use that context. If it's a query, use query's message context.
-    effective_update_for_context = query if query else update
-    reply_params = get_reply_params(effective_update_for_context)
-
-
-    if query: # Skipped keyword
-        query.answer()
-        # Edit the message that had the "Skip Keyword" button
-        query.edit_message_text("Keyword skipped.")
-    else: # Keyword provided by text message
-        user_data_store[user_id]["search_criteria"]["keyword"] = update.message.text
-        # Reply to the message that provided the keyword
-        update.message.reply_text("Got it. Keyword set.")
-
-
-    keyboard = [[InlineKeyboardButton("Skip Stack", callback_data="search_skip_stack")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    context.bot.send_message(
-        **reply_params, # Unpack chat_id and message_thread_id
-        text="Enter a tech stack to filter by (e.g., Python, React) (or skip):",
-        reply_markup=reply_markup
+async def help_command(update: Update, context: CallbackContext) -> None:
+    """Send a message when the command /help is issued."""
+    user = update.effective_user
+    logger.info(f"User {user.id} ({user.first_name}) requested help")
+    help_text = (
+        "*Available Commands:*\n\n"
+        "/newproject - Create a new project\n"
+        "/updateproject - Update an existing project\n"
+        "/myprojects - View your projects\n"
+        "/searchprojects - Search for projects\n"
+        "/help - Show this help message\n"
+        "/cancel - Cancel current operation"
     )
-    return ASK_SEARCH_STACK
-
-
-def handle_search_stack(update: Update, context: CallbackContext) -> int:
-    user_id = get_user_id(update) # For user_data_store key
-    query = update.callback_query
-    
-    effective_update_for_context = query if query else update
-    reply_params = get_reply_params(effective_update_for_context)
-
-    if query: # Skipped stack via callback
-        query.answer()
-        query.edit_message_text("Stack filter skipped.")
-    else: # Stack provided via text message
-        user_data_store[user_id]["search_criteria"]["stack"] = update.message.text
-        update.message.reply_text("Tech stack filter set.")
-
-    status_keyboard = [
-        [InlineKeyboardButton("Idea", callback_data="search_status_Idea")],
-        [InlineKeyboardButton("MVP", callback_data="search_status_MVP")],
-        [InlineKeyboardButton("Launched", callback_data="search_status_Launched")],
-        [InlineKeyboardButton("Any Status", callback_data="search_skip_status")]
-    ]
-    reply_markup = InlineKeyboardMarkup(status_keyboard)
-    context.bot.send_message(
-        **reply_params, # Unpack chat_id and message_thread_id
-        text="Filter by project status (or choose any):",
-        reply_markup=reply_markup
-    )
-    return ASK_SEARCH_STATUS
-
-def process_and_display_search_results(update: Update, context: CallbackContext) -> int:
-    user_id = get_user_id(update) # For user_data_store key
-    query = update.callback_query # This handler is only triggered by callback
-    
-    # The query is from a message previously sent by the bot (e.g. the status selection message)
-    # We want the final results to go to the same chat/topic as that message.
-    reply_params = {"chat_id": query.message.chat_id}
-    if query.message.is_topic_message:
-        reply_params["message_thread_id"] = query.message.message_thread_id
-        
-    query.answer()
-
-    if not query.data == "search_skip_status":
-        status = query.data.split('_')[2]
-        user_data_store[user_id]["search_criteria"]["status"] = status
-        query.edit_message_text(f"Status filter set to: {status}") # Edits the status selection message
-    else:
-        query.edit_message_text("Status filter skipped (any status).")
-
-    criteria = user_data_store[user_id].get("search_criteria", {})
-    
-    if not any(criteria.values()): # Check if all values in criteria are None or empty
-        context.bot.send_message(
-            **reply_params,
-            text="No search criteria provided. Please try again with at least one filter."
-        )
-        clear_user_data(user_id)
-        return ConversationHandler.END
-
-    # Send a "Searching..." message to the same context
-    context.bot.send_message(**reply_params, text=f"Searching with criteria: {criteria}...")
-    
-    results = airtable_client.search_projects(criteria)
-
-    if not results:
-        context.bot.send_message(**reply_params, text="No projects found matching your criteria.")
-    else:
-        message_parts = ["*Search Results:*\n\n"]
-        for project in results[:10]: # Limit results
-            fields = project.get('fields', {})
-            # ... (formatting logic for each project) ...
-            project_name = fields.get("Project Name", "N/A")
-            one_liner = fields.get("One-liner", "") #
-            status = fields.get("Status", "N/A") #
-            stack = fields.get("Stack", "N/A") #
-            message_parts.append(f"- *{project_name}* ({status})\n")
-            message_parts.append(f"  _Stack:_ {stack}\n")
-            message_parts.append(f"  _Tagline:_ {one_liner}\n\n")
-        
-        if len(results) > 10:
-            message_parts.append(f"\n...and {len(results) - 10} more. Consider refining your search.")
-        
-        final_message = "".join(message_parts)
-        context.bot.send_message(**reply_params, text=final_message, parse_mode='Markdown')
-
-    clear_user_data(user_id)
-    return ConversationHandler.END
-
-# Apply similar `get_reply_params` logic or direct `message_thread_id` handling
-# to other handlers like /newproject and /updateproject if you want their
-# non-reply/non-edit messages to also stay within topics when invoked there.
-
-
+    await update.message.reply_text(help_text, parse_mode='Markdown')
 
 # --- FastAPI App Setup ---
 app = FastAPI()
