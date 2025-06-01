@@ -1,7 +1,7 @@
 # app.py
 import os
 import logging
-from flask import Flask, request as flask_request
+from fastapi import FastAPI, Request, HTTPException
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 from dotenv import load_dotenv
@@ -403,8 +403,8 @@ def process_and_display_search_results(update: Update, context: CallbackContext)
 
 
 
-# --- Flask App Setup ---
-flask_app = Flask(__name__)
+# --- FastAPI App Setup ---
+app = FastAPI()
 telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 def setup_all_handlers(app_instance: Application):
@@ -485,7 +485,6 @@ def setup_all_handlers(app_instance: Application):
         raise
 
 # Call setup_handlers for the global telegram_app instance AT MODULE LEVEL
-# This ensures the instance Gunicorn uses has handlers.
 setup_all_handlers(telegram_app)
 
 # --- PTB Threading Setup ---
@@ -584,51 +583,41 @@ if not os.environ.get("WERKZEUG_RUN_MAIN") or os.environ.get("WERKZEUG_RUN_MAIN"
 else:
     logger.info("Skipping PTB background thread start (likely Werkzeug reloader child process or similar).")
 
-
-# --- Flask App Setup ---
-flask_app = Flask(__name__) #
-
-@flask_app.route('/webhook', methods=['POST']) #
-def webhook_sync(): # Renamed from 'webhook' for clarity
+@app.post("/webhook")
+async def webhook(request: Request):
     try:
-        json_data = flask_request.get_json(force=True) #
-        logger.info(f"Received webhook update: {json_data.get('message', {}).get('text', 'No text')}")  # Log incoming update
+        json_data = await request.json()
+        logger.info(f"Received webhook update: {json_data.get('message', {}).get('text', 'No text')}")
         
-        update = Update.de_json(json_data, telegram_app.bot) #
+        update = Update.de_json(json_data, telegram_app.bot)
         
         if hasattr(telegram_app, 'update_queue') and telegram_app.update_queue:
-            logger.info("Putting update in queue...")  # Log queue operation
-            telegram_app.update_queue.put_nowait(update) #
-            logger.info("Update successfully queued")  # Log success
-            return 'ok', 200 #
+            logger.info("Putting update in queue...")
+            await telegram_app.update_queue.put(update)  # Now properly awaited
+            logger.info("Update successfully queued")
+            return {"status": "ok"}
         else:
             logger.error("CRITICAL: telegram_app.update_queue is None! PTB app might not have started correctly.")
-            return 'Update queue not available', 500 # Should not happen if app.start() ran
+            raise HTTPException(status_code=500, detail="Update queue not available")
             
-    except Exception as e: #
-        logger.error(f"Webhook error: {e}", exc_info=True) #
-        return f"Webhook error: {e}", 500 #
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
-@flask_app.route('/ping', methods=['GET']) #
-def ping(): #
-    return 'pong', 200 #
+@app.get("/ping")
+async def ping():
+    return {"status": "pong"}
 
-# Entry point for Gunicorn or other WSGI servers
-application = flask_app #
-
-# The `main()` function from your original file is no longer needed for Gunicorn startup.
-# Its roles (handler setup, webhook set, PTB start) are now handled at module level
-# or within the dedicated PTB thread.
+# Entry point for Gunicorn or other ASGI servers
+application = app
 
 if __name__ == '__main__':
-    # This block is for local development.
-    # The PTB thread (ptb_background_thread) will have already been initiated if WEBHOOK_URL is set.
+    import uvicorn
     if WEBHOOK_URL:
-        logger.info("Running Flask app locally for webhook testing (PTB thread should be active).")
-        # The webhook is set by the PTB thread.
-        flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080))) #
+        logger.info("Running FastAPI app locally for webhook testing (PTB thread should be active).")
+        uvicorn.run(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
     else:
-        # For local polling, we don't need the Flask app or the PTB webhook thread.
+        # For local polling, we don't need the FastAPI app or the PTB webhook thread.
         # We'll run a separate polling instance.
         logger.info("WEBHOOK_URL not set. Running Telegram bot with polling locally (new instance)...")
         

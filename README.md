@@ -14,7 +14,7 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 
 ```
 .
-├── app.py              # Main Flask application and Telegram bot setup
+├── app.py              # Main FastAPI application and Telegram bot setup
 ├── airtable_client.py  # Airtable API interaction module
 ├── weekly_digest.py    # Weekly project digest generator
 ├── requirements.txt    # Python dependencies
@@ -236,6 +236,10 @@ The `"url"` should end with `/webhook`.
 
 1. Start the bot:
    ```bash
+   # For webhook mode (requires WEBHOOK_URL in .env)
+   uvicorn app:app --reload --port 8080
+
+   # For polling mode (no WEBHOOK_URL needed)
    python app.py
    ```
 
@@ -267,10 +271,10 @@ The `"url"` should end with `/webhook`.
    - Build Command: `pip install -r requirements.txt`
    - **Start Command:**
      ```bash
-     gunicorn --preload --workers 1 app:application
+     uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
      ```
      > **IMPORTANT:**
-     > Always use `--preload` and a single worker to ensure only one PTB thread is started. Using multiple workers without `--preload` can cause subtle bugs and race conditions. See the "Production Deployment Notes" section below for details and troubleshooting.
+     > Always use a single worker to ensure only one PTB thread is started. Using multiple workers can cause subtle bugs and race conditions.
    - Plan: Free (or your preferred plan)
 
 3. **Add Environment Variables:**
@@ -300,7 +304,7 @@ The `"url"` should end with `/webhook`.
 
 ### Code Structure
 
-- `app.py`: Main Flask application and Telegram bot setup
+- `app.py`: Main FastAPI application and Telegram bot setup
 - `airtable_client.py`: Airtable API interaction module
 - `weekly_digest.py`: Weekly project digest generator
 - `requirements.txt`: Python dependencies
@@ -309,7 +313,7 @@ The `"url"` should end with `/webhook`.
 
 ### Key Features
 
-- Asynchronous request handling
+- Asynchronous request handling with FastAPI
 - Comprehensive error logging
 - Input validation and sanitization
 - Modular command handler structure
@@ -380,30 +384,28 @@ flake8 .
 - **Symptom:** Warning in logs: `coroutine 'Queue.put' was never awaited`.
 - **Cause:** In `python-telegram-bot` v20+, `update_queue.put` is async and must be awaited.
 - **Fix:**
-  - Change the Flask `/webhook` route to `async def` and use `await telegram_app.update_queue.put(update)`.
-  - Note: Flask async support may require a compatible server (e.g., Quart or FastAPI for full async).
+  - The FastAPI webhook handler is now properly async and awaits the queue put operation.
 
 ### 6. 404s for `/` (root) in logs
 - **Symptom:** Logs show repeated 404s for `/`.
-- **Cause:** No route is defined for `/` in Flask app. This is normal unless you want a homepage.
+- **Cause:** No route is defined for `/` in FastAPI app. This is normal unless you want a homepage.
 - **Fix:**
   - Ignore, or add a root route if desired:
     ```python
-    @flask_app.route('/')
-    def home():
-        return 'Loophole Bot is running!', 200
-    ``` 
+    @app.get("/")
+    async def home():
+        return {"status": "Loophole Bot is running!"}
+    ```
 
 ## Production Deployment Notes
 
-### Gunicorn and PTB Threading
-- **IMPORTANT:** For production, always use Gunicorn with `--preload` and a single worker to ensure only one PTB (python-telegram-bot) thread is started.
+### Uvicorn and PTB Threading
+- **IMPORTANT:** For production, always use Uvicorn with a single worker to ensure only one PTB (python-telegram-bot) thread is started.
 - **Recommended command:**
   ```bash
-  gunicorn --preload --workers 1 app:application
+  uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
   ```
-- If you use multiple workers without `--preload`, each worker will start its own PTB thread, which can cause subtle bugs and race conditions.
-- The code will log a warning if it detects multiple workers without `--preload`.
+- If you use multiple workers, each worker will start its own PTB thread, which can cause subtle bugs and race conditions.
 
 ### PTBUserWarning: per_message in ConversationHandler
 - You may see warnings like:
@@ -414,7 +416,7 @@ flake8 .
 
 ### Troubleshooting
 - If your bot is not responding to updates, check:
-  - Only one PTB thread is running (see Gunicorn notes above)
+  - Only one PTB thread is running (see Uvicorn notes above)
   - The webhook is set to `/webhook` and returns HTTP 200
   - The PTB thread is not exiting immediately (check logs for shutdown or errors)
   - Your handlers are registered and error handler is logging exceptions
