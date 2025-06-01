@@ -45,7 +45,8 @@ def add_project(project_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             if field not in project_data:
                 project_data.setdefault(field, "")
 
-        project_data["Last Updated"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Format date in YYYY-MM-DD format for Airtable
+        project_data["Last Updated"] = datetime.utcnow().strftime("%Y-%m-%d")
         created_record = projects_table.create(project_data)
         return created_record
     except Exception as e:
