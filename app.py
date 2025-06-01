@@ -49,6 +49,7 @@ def clear_user_data(user_id: str):
 
 # --- /newproject Command Handlers ---
 def new_project_start(update: Update, context: CallbackContext) -> int:
+    logger.info(f"HANDLER TRIGGERED: new_project_start by user {update.effective_user.id}")
     user_id = get_user_id(update)
     clear_user_data(user_id) # Clear any previous data
     user_data_store[user_id] = {"telegram_id": user_id}
@@ -56,6 +57,7 @@ def new_project_start(update: Update, context: CallbackContext) -> int:
     return ASK_PROJECT_NAME
 
 def ask_one_liner(update: Update, context: CallbackContext) -> int:
+    logger.info(f"HANDLER TRIGGERED: new_one_liner by user {update.effective_user.id}")
     user_id = get_user_id(update)
     user_data_store[user_id]["project_name"] = update.message.text #
     update.message.reply_text("Great! Now, what's the one-liner tagline for your project?") #
@@ -491,69 +493,58 @@ setup_all_handlers(telegram_app)
 # Example: gunicorn --preload --workers 1 app:application
 # If you use multiple workers without --preload, each worker will start its own PTB thread, which can cause issues.
 
+# In ptb_thread_target function:
 def ptb_thread_target(app: Application, webhook_url_base: str):
-    """Runs the PTB application's event loop, sets webhook, and starts processing."""
-    logger.info("PTB thread started.")
+    logger.info("PTB thread target started.") # Changed log message slightly for clarity
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    async def run_application():
-        """Async function to run the application."""
-        try:
-            logger.info("PTB Thread: Initializing application...")
-            await app.initialize()
-            logger.info("PTB Thread: Application initialized.")
-
-            if webhook_url_base:
-                webhook_full_url = f"{webhook_url_base}/webhook"
-                logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
-                await app.bot.set_webhook(
-                    url=webhook_full_url,
-                    allowed_updates=Update.ALL_TYPES
-                )
-                logger.info("PTB Thread: Webhook set successfully.")
-            else:
-                logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
-
-            logger.info("PTB Thread: Starting application processing (this will block the thread)...")
-            await app.start()
-            logger.info("PTB Thread: app.start() returned (application stopped).")
-            
-        except Exception as e:
-            logger.error(f"Error in run_application: {e}", exc_info=True)
-            raise
-        finally:
-            if app.running:
-                logger.info("PTB Thread: Stopping application...")
-                await app.stop()
-                logger.info("PTB Thread: Application stopped.")
-
     try:
-        # Run the async application
-        loop.run_until_complete(run_application())
+        logger.info("PTB Thread: Initializing application...")
+        loop.run_until_complete(app.initialize()) # initialize() is async
+        logger.info("PTB Thread: Application initialized.")
+
+        if webhook_url_base:
+            webhook_full_url = f"{webhook_url_base}/webhook"
+            logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
+            loop.run_until_complete(app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES)) # set_webhook() is async
+            logger.info("PTB Thread: Webhook set successfully.")
+        else:
+            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
+        
+        logger.info("PTB Thread: Calling app.start() (this will block this thread and run the event loop for PTB)...")
+        # app.start() is a SYNCHRONOUS method that STARTS async components and RUNS the event loop.
+        # It will block this thread here until app.stop() is called elsewhere and the loop stops.
+        app.start() 
+        
+        # Code below this line in the try block will only execute after app.start() returns (i.e., after app.stop() has been effective)
+        logger.info("PTB Thread: app.start() has returned, meaning the application's main loop has stopped.")
+
     except KeyboardInterrupt:
         logger.info("PTB Thread: KeyboardInterrupt received.")
     except Exception as e:
-        logger.error(f"PTB thread encountered an unhandled exception: {e}", exc_info=True)
+        logger.error(f"PTB thread encountered an unhandled exception during its lifecycle: {e}", exc_info=True)
     finally:
-        logger.info("PTB Thread: Cleaning up...")
-        try:
-            # Cancel all running tasks
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            
-            # Wait for all tasks to be cancelled
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            
-            # Close the loop
+        logger.info("PTB Thread: Reached finally block. Ensuring application is stopped if it was running.")
+        # Check if PTB components were started and try to stop them
+        if app.running: 
+            logger.info("PTB Thread: Application is marked as running, attempting to stop components...")
+            # stop() is async and needs to be run in an event loop.
+            # The loop might be closed or closing, so this can be tricky.
+            # If the loop is still running here (e.g. if start() exited due to an error not KeyboardInterrupt), this is okay.
+            # If loop is closed, this might fail.
+            try:
+                if not loop.is_closed():
+                    loop.run_until_complete(app.stop())
+                    logger.info("PTB Thread: app.stop() completed.")
+                else:
+                    logger.warning("PTB Thread: Loop was already closed, can't run app.stop().")
+            except Exception as e_stop:
+                logger.error(f"PTB Thread: Exception during app.stop(): {e_stop}", exc_info=True)
+        
+        if not loop.is_closed():
             loop.close()
             logger.info("PTB Thread: Event loop closed.")
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}", exc_info=True)
-        logger.info("PTB Thread: Cleanup complete.")
-
+        logger.info("PTB Thread: Thread target function finishing.")
 # Start the PTB thread only once.
 # The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
 # For Gunicorn, if you use --preload, this module-level code runs once in the master process.
