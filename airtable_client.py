@@ -77,7 +77,7 @@ def add_update(update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     
     Args:
         update_data: Dict containing update fields:
-            - Project (Linked): List of project record IDs
+            - Project: List of project record IDs
             - Update Text: The update content
             - Blockers: Any blockers mentioned
             - Updated By: Telegram ID of updater
@@ -86,10 +86,10 @@ def add_update(update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         Created update record if successful, None if failed
     """
     try:
-        update_data["Timestamp"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        update_data["Timestamp"] = datetime.utcnow().strftime("%Y-%m-%d")
         
         # Ensure required fields are present
-        required_fields = ["Project (Linked)", "Update Text", "Blockers", "Updated By"]
+        required_fields = ["Project", "Update Text", "Blockers", "Updated By"]
         for field in required_fields:
             if field not in update_data:
                 update_data.setdefault(field, "")
@@ -97,8 +97,8 @@ def add_update(update_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         created_update_record = updates_table.create(update_data)
 
         # Update 'Last Updated' in the Projects table
-        if created_update_record and 'Project (Linked)' in update_data and update_data['Project (Linked)']:
-            project_record_id = update_data['Project (Linked)'][0]
+        if created_update_record and 'Project' in update_data and update_data['Project']:
+            project_record_id = update_data['Project'][0]
             projects_table.update(project_record_id, {"Last Updated": update_data["Timestamp"]})
         
         return created_update_record

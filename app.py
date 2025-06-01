@@ -228,7 +228,7 @@ async def save_project_update(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
     update_payload = {
-        "Project (Linked)": [project_id],
+        "Project": [project_id],
         "Update Text": user_data_store[user_id].get("progress_update"),
         "Blockers": user_data_store[user_id].get("blockers"),
         "Updated By": user_id,
@@ -399,7 +399,7 @@ async def start_command(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     logger.info(f"User {user.id} ({user.first_name}) started the bot")
     await update.message.reply_text(
-        f"Hi {user.first_name}! I'm the Loophole Project Tracker bot. "
+        f"Hi {user.first_name}! I'm the Project Tracker bot. "
         "Use /newproject to create a new project, or /help to see all commands."
     )
 
@@ -431,7 +431,7 @@ def setup_all_handlers(app_instance: Application):
             user = update.effective_user
             logger.info(f"User {user.id} ({user.first_name}) started the bot")
             await update.message.reply_text(
-                f"Hi {user.first_name}! I'm the Loophole Project Tracker bot. "
+                f"Hi {user.first_name}! I'm the Project Tracker bot. "
                 "Use /newproject to create a new project, or /help to see all commands."
             )
 
