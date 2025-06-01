@@ -462,7 +462,22 @@ def setup_all_handlers(app_instance: Application):
         app_instance.add_handler(CommandHandler('myprojects', my_projects))
         app_instance.add_error_handler(error_handler)
         logger.info("All handlers set up successfully")
-        logger.info(f"Registered handlers: {[h.callback.__name__ for h in app_instance.handlers.values()]}")
+        handler_names = []
+        for handler_list in app_instance.handlers.values():
+            # handler_list can be a list or a single handler
+            if isinstance(handler_list, list):
+                for h in handler_list:
+                    if hasattr(h, 'callback'):
+                        handler_names.append(h.callback.__name__)
+                    else:
+                        handler_names.append(str(h))
+            else:
+                h = handler_list
+                if hasattr(h, 'callback'):
+                    handler_names.append(h.callback.__name__)
+                else:
+                    handler_names.append(str(h))
+        logger.info(f"Registered handlers: {handler_names}")
     except Exception as e:
         logger.error(f"Error setting up handlers: {e}", exc_info=True)
         raise
