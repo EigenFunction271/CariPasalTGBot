@@ -464,7 +464,7 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
     asyncio.set_event_loop(loop)
     try:
         logger.info("PTB Thread: Initializing application...")
-        loop.run_until_complete(app.initialize()) # Initialize first
+        loop.run_until_complete(app.initialize())
         logger.info("PTB Thread: Application initialized.")
 
         if webhook_url_base:
@@ -473,11 +473,25 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
             loop.run_until_complete(app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES))
             logger.info("PTB Thread: Webhook set successfully.")
         else:
-            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup. Bot will not receive webhook updates.")
+            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
         
         logger.info("PTB Thread: Starting application (dispatcher will process update queue)...")
         loop.run_until_complete(app.start())
         logger.info("PTB Thread: Application started. Entering idle loop to keep thread alive.")
+        
+        # Add logging for update processing
+        async def log_updates():
+            while True:
+                try:
+                    update = await app.update_queue.get()
+                    logger.info(f"Processing update: {update.message.text if update.message else 'No message'}")
+                    app.update_queue.task_done()
+                except Exception as e:
+                    logger.error(f"Error processing update: {e}", exc_info=True)
+        
+        # Start the update logging coroutine
+        loop.create_task(log_updates())
+        
         try:
             loop.run_forever()
         except KeyboardInterrupt:
@@ -514,10 +528,14 @@ flask_app = Flask(__name__) #
 def webhook_sync(): # Renamed from 'webhook' for clarity
     try:
         json_data = flask_request.get_json(force=True) #
+        logger.info(f"Received webhook update: {json_data.get('message', {}).get('text', 'No text')}")  # Log incoming update
+        
         update = Update.de_json(json_data, telegram_app.bot) #
         
         if hasattr(telegram_app, 'update_queue') and telegram_app.update_queue:
-            telegram_app.update_queue.put_nowait(update)
+            logger.info("Putting update in queue...")  # Log queue operation
+            telegram_app.update_queue.put_nowait(update) #
+            logger.info("Update successfully queued")  # Log success
             return 'ok', 200 #
         else:
             logger.error("CRITICAL: telegram_app.update_queue is None! PTB app might not have started correctly.")
