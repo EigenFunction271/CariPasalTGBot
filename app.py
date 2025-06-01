@@ -407,50 +407,65 @@ telegram_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
 def setup_all_handlers(app_instance: Application):
     logger.info("Setting up all handlers...")
-    # ConversationHandler for /newproject (ensure states and handlers are defined)
-    new_project_conv_handler = ConversationHandler( #
-        entry_points=[CommandHandler('newproject', new_project_start)], #
-        states={ #
-            ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)], #
-            # ... (add all states for new_project from your file)
-            ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)], #
-            ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')], #
-            ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)], #
-        },
-        fallbacks=[CommandHandler('cancel', cancel)], #
-    )
+    try:
+        # ConversationHandler for /newproject
+        new_project_conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('newproject', new_project_start)],
+            states={
+                ASK_PROJECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_one_liner)],
+                ASK_ONE_LINER: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_problem)],
+                ASK_PROBLEM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_stack)],
+                ASK_STACK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_link)],
+                ASK_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_status)],
+                ASK_STATUS: [CallbackQueryHandler(ask_help_needed, pattern='^status_')],
+                ASK_HELP_NEEDED: [MessageHandler(filters.TEXT & ~filters.COMMAND, new_project_save)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel)],
+        )
 
-    # ConversationHandler for /updateproject (ensure states and handlers are defined)
-    update_project_conv_handler = ConversationHandler( #
-        entry_points=[ #
-            CommandHandler('updateproject', update_project_start_choose), #
-            CallbackQueryHandler(update_project_start_choose, pattern='^update_') #
-        ],
-        states={ #
-            # ... (add all states for update_project from your file)
-            ASK_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_project_update)], #
-        },
-        fallbacks=[CommandHandler('cancel', cancel)], #
-    )
-
-    # ConversationHandler for /searchprojects (ensure states and handlers are defined)
-    search_conv_handler = ConversationHandler( #
-        entry_points=[CommandHandler('searchprojects', search_projects_start)], #
-        states={ #
-            # ... (add all states for search_projects from your file)
-            ASK_SEARCH_STATUS: [ #
-                CallbackQueryHandler(process_and_display_search_results, pattern='^search_status_|^search_skip_status$') #
+        # ConversationHandler for /updateproject
+        update_project_conv_handler = ConversationHandler(
+            entry_points=[
+                CommandHandler('updateproject', update_project_start_choose),
+                CallbackQueryHandler(update_project_start_choose, pattern='^update_')
             ],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)], #
-    )
-    
-    app_instance.add_handler(new_project_conv_handler) #
-    app_instance.add_handler(update_project_conv_handler) #
-    app_instance.add_handler(search_conv_handler) #
-    app_instance.add_handler(CommandHandler('myprojects', my_projects)) #
-    app_instance.add_error_handler(error_handler) #
-    logger.info("All handlers set up on the application instance.")
+            states={
+                CHOOSE_PROJECT_TO_UPDATE: [CallbackQueryHandler(handle_project_selection_for_update, pattern='^proj_')],
+                ASK_PROGRESS_UPDATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_blockers)],
+                ASK_BLOCKERS: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_project_update)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel)],
+        )
+
+        # ConversationHandler for /searchprojects
+        search_conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('searchprojects', search_projects_start)],
+            states={
+                ASK_SEARCH_KEYWORD: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_keyword),
+                    CallbackQueryHandler(handle_search_keyword, pattern='^search_skip_keyword$')
+                ],
+                ASK_SEARCH_STACK: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_stack),
+                    CallbackQueryHandler(handle_search_stack, pattern='^search_skip_stack$')
+                ],
+                ASK_SEARCH_STATUS: [
+                    CallbackQueryHandler(process_and_display_search_results, pattern='^search_status_|^search_skip_status$')
+                ],
+            },
+            fallbacks=[CommandHandler('cancel', cancel)],
+        )
+        
+        app_instance.add_handler(new_project_conv_handler)
+        app_instance.add_handler(update_project_conv_handler)
+        app_instance.add_handler(search_conv_handler)
+        app_instance.add_handler(CommandHandler('myprojects', my_projects))
+        app_instance.add_error_handler(error_handler)
+        logger.info("All handlers set up successfully")
+        logger.info(f"Registered handlers: {[h.callback.__name__ for h in app_instance.handlers.values()]}")
+    except Exception as e:
+        logger.error(f"Error setting up handlers: {e}", exc_info=True)
+        raise
 
 # Call setup_handlers for the global telegram_app instance AT MODULE LEVEL
 # This ensures the instance Gunicorn uses has handlers.
@@ -462,51 +477,65 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
     logger.info("PTB thread started.")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    try:
-        logger.info("PTB Thread: Initializing application...")
-        loop.run_until_complete(app.initialize())
-        logger.info("PTB Thread: Application initialized.")
-
-        if webhook_url_base:
-            webhook_full_url = f"{webhook_url_base}/webhook"
-            logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
-            loop.run_until_complete(app.bot.set_webhook(url=webhook_full_url, allowed_updates=Update.ALL_TYPES))
-            logger.info("PTB Thread: Webhook set successfully.")
-        else:
-            logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
-        
-        logger.info("PTB Thread: Starting application (dispatcher will process update queue)...")
-        loop.run_until_complete(app.start())
-        logger.info("PTB Thread: Application started. Entering idle loop to keep thread alive.")
-        
-        # Add logging for update processing
-        async def log_updates():
-            while True:
-                try:
-                    update = await app.update_queue.get()
-                    logger.info(f"Processing update: {update.message.text if update.message else 'No message'}")
-                    app.update_queue.task_done()
-                except Exception as e:
-                    logger.error(f"Error processing update: {e}", exc_info=True)
-        
-        # Start the update logging coroutine
-        loop.create_task(log_updates())
-        
+    
+    async def run_application():
+        """Async function to run the application."""
         try:
-            loop.run_forever()
-        except KeyboardInterrupt:
-            pass
+            logger.info("PTB Thread: Initializing application...")
+            await app.initialize()
+            logger.info("PTB Thread: Application initialized.")
 
+            if webhook_url_base:
+                webhook_full_url = f"{webhook_url_base}/webhook"
+                logger.info(f"PTB Thread: Setting webhook to {webhook_full_url}")
+                await app.bot.set_webhook(
+                    url=webhook_full_url,
+                    allowed_updates=Update.ALL_TYPES
+                )
+                logger.info("PTB Thread: Webhook set successfully.")
+            else:
+                logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
+
+            logger.info("PTB Thread: Starting application processing (this will block the thread)...")
+            app.start()
+            logger.info("PTB Thread: app.start() returned (application stopped).")
+            
+        except Exception as e:
+            logger.error(f"Error in run_application: {e}", exc_info=True)
+            raise
+        finally:
+            if app.running:
+                logger.info("PTB Thread: Stopping application...")
+                await app.stop()
+                logger.info("PTB Thread: Application stopped.")
+
+    try:
+        # Run the async application
+        loop.run_until_complete(run_application())
+    except KeyboardInterrupt:
+        logger.info("PTB Thread: KeyboardInterrupt received.")
     except Exception as e:
         logger.error(f"PTB thread encountered an unhandled exception: {e}", exc_info=True)
     finally:
-        logger.info("PTB Thread: Reached finally block. Ensuring application is stopped.")
-        if app.running:
-            logger.info("PTB Thread: Application is running, attempting to stop components.")
-            loop.run_until_complete(app.stop())
-        loop.close()
-        logger.info("PTB Thread: Event loop closed. Thread finishing.")
+        logger.info("PTB Thread: Cleaning up...")
+        try:
+            # Cancel all running tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            
+            # Wait for all tasks to be cancelled
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            
+            # Close the loop
+            loop.close()
+            logger.info("PTB Thread: Event loop closed.")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}", exc_info=True)
+        logger.info("PTB Thread: Cleanup complete.")
 
+        
 # Start the PTB thread only once.
 # The check for WERKZEUG_RUN_MAIN is for Flask's dev server reloader.
 # For Gunicorn, if you use --preload, this module-level code runs once in the master process.
@@ -574,3 +603,19 @@ if __name__ == '__main__':
         
         logger.info("Starting polling...")
         polling_app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+def log_handler_errors(func):
+    async def wrapper(update: Update, context: CallbackContext):
+        try:
+            return await func(update, context)
+        except Exception as e:
+            logger.error(f"Error in handler {func.__name__}: {e}", exc_info=True)
+            if update and update.effective_message:
+                try:
+                    await update.effective_message.reply_text(
+                        'An error occurred. Please try again later.'
+                    )
+                except Exception as reply_error:
+                    logger.error(f"Failed to send error message: {reply_error}")
+            return ConversationHandler.END
+    return wrapper

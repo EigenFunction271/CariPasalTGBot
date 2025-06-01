@@ -8,7 +8,11 @@ from datetime import datetime, timedelta
 from pyairtable.formulas import OR, GTE, LTE, AND, EQ, FIND, LOWER, NOT # Added EQ, NOT for flexibility
 #from pyairtable.formulas import OR, GTE, LTE, AND, FIELD, FORMAT_DATETIME_STR
 #from pyairtable.formulas import STR_VALUE, FIND, LOWER, OR, AND # Add AND if not already there
+from telegram import Update
+from telegram.ext import CallbackContext, ConversationHandler
+import logging
 
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -178,5 +182,41 @@ def search_projects(criteria: dict):
         print(f"Error searching projects with criteria {criteria}: {e}")
         return []
 
+def error_handler(update: object, context: CallbackContext) -> None:
+    """Log errors caused by updates."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    
+    # Log the update that caused the error
+    if update:
+        logger.error(f"Update that caused error: {update.to_dict() if hasattr(update, 'to_dict') else update}")
+    
+    # Log the error context
+    logger.error(f"Error context: {context.error.__class__.__name__}: {str(context.error)}")
+    
+    # Try to notify the user
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            update.effective_message.reply_text(
+                'An error occurred while processing your request. Please try again later.'
+            )
+        except Exception as e:
+            logger.error(f"Failed to send error message to user: {e}")
+
+def log_handler_errors(func):
+    """Decorator to log errors in handlers."""
+    async def wrapper(update: Update, context: CallbackContext):
+        try:
+            return await func(update, context)
+        except Exception as e:
+            logger.error(f"Error in handler {func.__name__}: {e}", exc_info=True)
+            if update and update.effective_message:
+                try:
+                    await update.effective_message.reply_text(
+                        'An error occurred. Please try again later.'
+                    )
+                except Exception as reply_error:
+                    logger.error(f"Failed to send error message: {reply_error}")
+            return ConversationHandler.END
+    return wrapper
 
 # You can add more utility functions here as needed, e.g., to update specific project fields.
