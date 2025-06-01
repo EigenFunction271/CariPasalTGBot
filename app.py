@@ -510,19 +510,11 @@ flask_app = Flask(__name__) #
 
 @flask_app.route('/webhook', methods=['POST']) #
 def webhook_sync(): # Renamed from 'webhook' for clarity
-    # Check if the application has been initialized by the thread
-    if not telegram_app.initialized:
-        logger.error("Webhook called, but telegram_app is not yet initialized by its thread.")
-        # Potentially wait a very short time for thread to initialize, or return error
-        return 'Bot not ready, please try again shortly.', 503 # Service Unavailable
-
     try:
         json_data = flask_request.get_json(force=True) #
         update = Update.de_json(json_data, telegram_app.bot) #
         
-        if telegram_app.update_queue:
-            # Use put_nowait as this handler is synchronous and the queue
-            # is an asyncio.Queue processed by the PTB thread.
+        if hasattr(telegram_app, 'update_queue') and telegram_app.update_queue:
             telegram_app.update_queue.put_nowait(update)
             return 'ok', 200 #
         else:
