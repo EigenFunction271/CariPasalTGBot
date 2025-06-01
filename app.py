@@ -58,13 +58,19 @@ async def new_project_start(update: Update, context: CallbackContext) -> int:
     return ASK_PROJECT_NAME
 
 async def ask_one_liner(update: Update, context: CallbackContext) -> int:
-    """Handle the project name and ask for one-liner."""
     try:
         user_id = get_user_id(update)
         project_name = update.message.text
         logger.info(f"Received project name '{project_name}' from user {user_id}")
+
+        # Ensure user_data_store[user_id] exists (it should from new_project_start)
+        # In ask_one_liner:
+        if user_id not in user_data_store:
+            logger.error(f"User {user_id} data not found in ask_one_liner. Conversation likely timed out or error.")
+            await update.message.reply_text("Sorry, your session seems to have expired or an error occurred. Please start again with /newproject.")
+            return ConversationHandler.END
+        user_data_store[user_id]["project_name"] = project_name # Correct way
         
-        user_data_store[user_id] = {"project_name": project_name}
         logger.info(f"Stored project name in user_data_store for user {user_id}")
         
         await update.message.reply_text("Great! Now, what's the one-liner tagline for your project?")
@@ -124,7 +130,7 @@ async def ask_help_needed(update: Update, context: CallbackContext) -> int:
     status = query.data.split('_')[1]
     user_data_store[user_id]["status"] = status
     await query.edit_message_text(text=f"Project stage set to: {status}")
-    await context.bot.send_message(chat_id=user_id, text="What kind of help do you need for this project? (e.g., 'Frontend dev', 'User feedback')")
+    await context.bot.send_message(chat_id=query.message.chat_id, text="What kind of help do you need for this project? (e.g., 'Frontend dev', 'User feedback')")
     return ASK_HELP_NEEDED
 
 async def new_project_save(update: Update, context: CallbackContext) -> int:
@@ -473,7 +479,7 @@ def setup_all_handlers(app_instance: Application):
                     MessageHandler(
                         filters.TEXT & ~filters.COMMAND,
                         ask_one_liner,
-                        block=False
+                        
                     )
                 ],
                 ASK_ONE_LINER: [
