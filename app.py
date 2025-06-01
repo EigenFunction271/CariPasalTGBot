@@ -79,7 +79,10 @@ async def ask_stack(update: Update, context: CallbackContext) -> int:
 async def ask_link(update: Update, context: CallbackContext) -> int:
     user_id = get_user_id(update)
     user_data_store[user_id]["stack"] = update.message.text
-    await update.message.reply_text("Please provide a GitHub or demo link (URL).")
+    await update.message.reply_text(
+        "Please provide a GitHub or demo link (URL).\n"
+        "Note: This is optional for Idea stage projects, but required for MVP and Launched projects."
+    )
     return ASK_LINK
 
 async def ask_status(update: Update, context: CallbackContext) -> int:
@@ -91,7 +94,13 @@ async def ask_status(update: Update, context: CallbackContext) -> int:
         [InlineKeyboardButton("Launched", callback_data="status_Launched")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("What's the current stage of the project?", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "What's the current stage of the project?\n\n"
+        "• Idea: Early concept, no code required\n"
+        "• MVP: Working prototype, requires GitHub/demo link\n"
+        "• Launched: Live product, requires GitHub/demo link",
+        reply_markup=reply_markup
+    )
     return ASK_STATUS
 
 async def ask_help_needed(update: Update, context: CallbackContext) -> int:
@@ -114,16 +123,37 @@ async def new_project_save(update: Update, context: CallbackContext) -> int:
         "One-liner": user_data_store[user_id].get("one_liner"),
         "Problem Statement": user_data_store[user_id].get("problem_statement"),
         "Stack": user_data_store[user_id].get("stack"),
-        "GitHub/Demo": user_data_store[user_id].get("github_demo_link"),
         "Status": user_data_store[user_id].get("status"),
         "Help Needed": user_data_store[user_id].get("help_needed"),
     }
 
+    # Only include GitHub/Demo if it's not empty
+    github_demo = user_data_store[user_id].get("github_demo_link", "").strip()
+    if github_demo:
+        project_payload["GitHub/Demo"] = github_demo
+
     record = airtable_client.add_project(project_payload)
     if record:
-        await update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
+        status = project_payload["Status"].lower()
+        if status == "idea" and not github_demo:
+            await update.message.reply_text(
+                f"Project '{project_payload['Project Name']}' created successfully!\n"
+                "Note: Since this is an Idea stage project, a placeholder GitHub URL was added. "
+                "You can update it later when you have a repository."
+            )
+        else:
+            await update.message.reply_text(f"Project '{project_payload['Project Name']}' created successfully!")
     else:
-        await update.message.reply_text("Sorry, there was an error creating your project. Please try again later.")
+        status = project_payload["Status"].lower()
+        if status in ["mvp", "launched"] and not github_demo:
+            await update.message.reply_text(
+                "Sorry, GitHub/Demo URL is required for MVP and Launched projects. "
+                "Please start over with /newproject and provide a valid URL."
+            )
+        else:
+            await update.message.reply_text(
+                "Sorry, there was an error creating your project. Please try again later."
+            )
     
     clear_user_data(user_id)
     return ConversationHandler.END
