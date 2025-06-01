@@ -512,7 +512,7 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
                 logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup.")
 
             logger.info("PTB Thread: Starting application processing (this will block the thread)...")
-            app.start()
+            await app.start()
             logger.info("PTB Thread: app.start() returned (application stopped).")
             
         except Exception as e:
