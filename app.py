@@ -6,6 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, ConversationHandler, CallbackQueryHandler
 from dotenv import load_dotenv
 import asyncio
+import threading
 
 import airtable_client # Our Airtable interaction module
 
