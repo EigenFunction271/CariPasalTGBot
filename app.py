@@ -476,10 +476,12 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
             logger.warning("PTB Thread: WEBHOOK_URL not provided, skipping webhook setup. Bot will not receive webhook updates.")
         
         logger.info("PTB Thread: Starting application (dispatcher will process update queue)...")
-        # Application.start() is synchronous. It starts async components and, by default,
-        # runs the event loop, blocking the current thread (which is what we want for this dedicated thread).
-        app.start()
-        logger.info("PTB Thread: Application.start() has finished (this means the bot processing loop has ended, e.g., via app.stop()).")
+        loop.run_until_complete(app.start())
+        logger.info("PTB Thread: Application started. Entering idle loop to keep thread alive.")
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            pass
 
     except Exception as e:
         logger.error(f"PTB thread encountered an unhandled exception: {e}", exc_info=True)
@@ -487,7 +489,7 @@ def ptb_thread_target(app: Application, webhook_url_base: str):
         logger.info("PTB Thread: Reached finally block. Ensuring application is stopped.")
         if app.running:
             logger.info("PTB Thread: Application is running, attempting to stop components.")
-            loop.run_until_complete(app.stop()) # stop() is async
+            loop.run_until_complete(app.stop())
         loop.close()
         logger.info("PTB Thread: Event loop closed. Thread finishing.")
 
