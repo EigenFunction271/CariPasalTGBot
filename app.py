@@ -387,25 +387,67 @@ async def process_and_display_search_results(update: Update, context: CallbackCo
     clear_user_data(user_id)
     return ConversationHandler.END
 
-# --- Fallback and Error Handlers ---
-async def cancel(update: Update, context: CallbackContext) -> int:
+# --- Teammates and Requests Command Handlers ---
+from telegram.constants import ParseMode
+
+async def add_teammate(update: Update, context: CallbackContext) -> None:
     user_id = get_user_id(update)
-    if update.message:
-        await update.message.reply_text('Operation cancelled.')
-    elif update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text('Operation cancelled.')
-    clear_user_data(user_id)
-    return ConversationHandler.END
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text("Usage: /addteammate <project_id> <telegram_id>")
+        return
+    project_id, teammate_id = args[0], args[1]
+    project = airtable_client.get_project_details(project_id)
+    if not project:
+        await update.message.reply_text("Project not found.")
+        return
+    if project['fields'].get('Owner Telegram ID') != user_id:
+        await update.message.reply_text("Only the project owner can add teammates.")
+        return
+    if airtable_client.add_teammate_to_project(project_id, teammate_id):
+        await update.message.reply_text(f"Teammate {teammate_id} added to project.")
+    else:
+        await update.message.reply_text("Failed to add teammate.")
 
-async def error_handler(update: object, context: CallbackContext) -> None:
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
-    if isinstance(update, Update) and update.effective_message:
-        try:
-            await update.effective_message.reply_text('An error occurred. Please try again later.')
-        except Exception as e:
-            logger.error(f"Failed to send error message to user: {e}")
+async def delete_teammate(update: Update, context: CallbackContext) -> None:
+    user_id = get_user_id(update)
+    args = context.args
+    if not args or len(args) < 2:
+        await update.message.reply_text("Usage: /deleteteammate <project_id> <telegram_id>")
+        return
+    project_id, teammate_id = args[0], args[1]
+    project = airtable_client.get_project_details(project_id)
+    if not project:
+        await update.message.reply_text("Project not found.")
+        return
+    if project['fields'].get('Owner Telegram ID') != user_id:
+        await update.message.reply_text("Only the project owner can remove teammates.")
+        return
+    if airtable_client.remove_teammate_from_project(project_id, teammate_id):
+        await update.message.reply_text(f"Teammate {teammate_id} removed from project.")
+    else:
+        await update.message.reply_text("Failed to remove teammate.")
 
+async def request_join(update: Update, context: CallbackContext) -> None:
+    user_id = get_user_id(update)
+    args = context.args
+    if not args or len(args) < 1:
+        await update.message.reply_text("Usage: /requestjoin <project_id>")
+        return
+    project_id = args[0]
+    if airtable_client.create_teammate_request(project_id, user_id):
+        await update.message.reply_text("Join request sent to project owner.")
+    else:
+        await update.message.reply_text("Failed to send join request.")
+
+# Register new command handlers in main()
+def main():
+    # ...existing code...
+    application.add_handler(CommandHandler("addteammate", add_teammate))
+    application.add_handler(CommandHandler("deleteteammate", delete_teammate))
+    application.add_handler(CommandHandler("requestjoin", request_join))
+    # ...existing code...
+# ...existing code...
 # Helper to get target chat_id and message_thread_id for replies in context
 def get_reply_params(update: Update) -> dict:
     params = {"chat_id": update.effective_chat.id}

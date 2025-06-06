@@ -15,6 +15,7 @@ AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY')
 AIRTABLE_BASE_ID = os.getenv('AIRTABLE_BASE_ID')
 AIRTABLE_PROJECTS_TABLE_NAME = os.getenv('AIRTABLE_PROJECTS_TABLE_NAME')
 AIRTABLE_UPDATES_TABLE_NAME = os.getenv('AIRTABLE_UPDATES_TABLE_NAME')
+AIRTABLE_TEAMMATE_REQUESTS_TABLE_NAME = os.getenv('AIRTABLE_TEAMMATE_REQUESTS_TABLE_NAME', 'Teammate Requests')
 
 if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_PROJECTS_TABLE_NAME, AIRTABLE_UPDATES_TABLE_NAME]):
     raise ValueError("Airtable configuration missing in environment variables.")
@@ -22,6 +23,13 @@ if not all([AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_PROJECTS_TABLE_NAME, AI
 projects_table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_PROJECTS_TABLE_NAME)
 updates_table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_UPDATES_TABLE_NAME)
 
+try:
+    teammate_requests_table = Table(AIRTABLE_API_KEY, AIRTABLE_BASE_ID, AIRTABLE_TEAMMATE_REQUESTS_TABLE_NAME)
+except Exception as e:
+    teammate_requests_table = None
+    logger.warning(f"Teammate Requests table not found or not configured: {e}")
+
+# --- Projects Logic ---
 def add_project(project_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Adds a new project to the Projects table.
@@ -220,3 +228,96 @@ def search_projects(criteria: Dict[str, str]) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error searching projects with criteria {criteria}: {e}", exc_info=True)
         return []
+
+# --- Teammates Logic ---
+def add_teammate_to_project(project_id: str, telegram_id: str) -> bool:
+    """
+    Adds a Telegram user ID to the Teammates field of a project.
+    """
+    try:
+        project = get_project_details(project_id)
+        if not project:
+            return False
+        teammates = project['fields'].get('Teammates', [])
+        if isinstance(teammates, str):
+            teammates = [t.strip() for t in teammates.split(',') if t.strip()]
+        if telegram_id not in teammates:
+            teammates.append(telegram_id)
+        projects_table.update(project_id, {"Teammates": ', '.join(teammates)})
+        return True
+    except Exception as e:
+        logger.error(f"Error adding teammate: {e}", exc_info=True)
+        return False
+
+def remove_teammate_from_project(project_id: str, telegram_id: str) -> bool:
+    """
+    Removes a Telegram user ID from the Teammates field of a project.
+    """
+    try:
+        project = get_project_details(project_id)
+        if not project:
+            return False
+        teammates = project['fields'].get('Teammates', [])
+        if isinstance(teammates, str):
+            teammates = [t.strip() for t in teammates.split(',') if t.strip()]
+        teammates = [t for t in teammates if t != telegram_id]
+        projects_table.update(project_id, {"Teammates": ', '.join(teammates)})
+        return True
+    except Exception as e:
+        logger.error(f"Error removing teammate: {e}", exc_info=True)
+        return False
+
+# --- Teammate Requests Logic ---
+def create_teammate_request(project_id: str, requester_id: str) -> bool:
+    """
+    Creates a teammate join request for a project.
+    """
+    if not teammate_requests_table:
+        logger.warning("Teammate Requests table not configured.")
+        return False
+    try:
+        teammate_requests_table.create({
+            "Project": [project_id],
+            "Requester Telegram ID": requester_id,
+            "Status": "Pending",
+            "Timestamp": datetime.utcnow().strftime("%Y-%m-%d")
+        })
+        return True
+    except Exception as e:
+        logger.error(f"Error creating teammate request: {e}", exc_info=True)
+        return False
+
+def get_pending_requests_for_owner(owner_telegram_id: str) -> list:
+    """
+    Returns all pending teammate requests for projects owned by the given Telegram ID.
+    """
+    if not teammate_requests_table:
+        return []
+    try:
+        # Get all projects owned by this user
+        projects = get_projects_by_user(owner_telegram_id)
+        project_ids = [p['id'] for p in projects]
+        if not project_ids:
+            return []
+        # Find requests for these projects with Status == Pending
+        formula = AND(
+            OR(*[{{'Project': [pid]}} for pid in project_ids]),
+            EQ('Status', 'Pending')
+        )
+        return teammate_requests_table.all(formula=formula)
+    except Exception as e:
+        logger.error(f"Error fetching pending teammate requests: {e}", exc_info=True)
+        return []
+
+def update_teammate_request_status(request_id: str, status: str) -> bool:
+    """
+    Updates the status of a teammate request (Approved/Rejected).
+    """
+    if not teammate_requests_table:
+        return False
+    try:
+        teammate_requests_table.update(request_id, {"Status": status})
+        return True
+    except Exception as e:
+        logger.error(f"Error updating teammate request status: {e}", exc_info=True)
+        return False
