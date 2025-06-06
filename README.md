@@ -8,6 +8,9 @@ A Telegram bot for Loophole Hackers community members to track and update their 
 - `/updateproject` - Log progress updates for existing projects
 - `/myprojects` - View and manage your projects
 - `/searchprojects` - Search for projects by keyword, stack, or status
+- `/addteammate` - Project owner: add a teammate to your project
+- `/deleteteammate` - Project owner: remove a teammate from your project
+- `/requestjoin` - Request to join a project as a teammate
 - Weekly digest of project updates (automated)
 
 ## Project Structure
@@ -147,13 +150,14 @@ The `"url"` should end with `/webhook`.
    - Click "Add a base" → "Start from scratch"
    - Name it "Loophole Project Tracker"
 
-2. Create two tables:
+2. Create three tables:
 
    **Projects Table**
    | Field             | Type           | Notes                                    |
    |------------------|----------------|------------------------------------------|
    | Project Name      | Text           | Single line text                         |
    | Owner Telegram ID | Text           | Single line text                         |
+   | Teammates         | Multiple text  | List of Telegram IDs (comma-separated)   |
    | One-liner         | Text           | Single line text                         |
    | Problem Statement | Long text      | Multiple lines allowed                   |
    | Stack             | Text           | Single line text                         |
@@ -170,6 +174,14 @@ The `"url"` should end with `/webhook`.
    | Blockers         | Long text      | Multiple lines allowed                   |
    | Updated By       | Text           | Telegram ID                              |
    | Timestamp        | Date           | Auto-generated                           |
+
+   **Teammate Requests Table**
+   | Field                | Type             | Notes                                    |
+   |---------------------|------------------|------------------------------------------|
+   | Project             | Link to Project  | Link to Projects table                   |
+   | Requester Telegram ID| Text            | Telegram ID of the requester             |
+   | Status              | Single select    | Pending, Approved, Rejected              |
+   | Timestamp           | Date             | Auto-generated                           |
 
 3. Create a Personal Access Token:
    - Go to your [Airtable account page](https://airtable.com/account)
@@ -319,6 +331,8 @@ The `"url"` should end with `/webhook`.
 - Modular command handler structure
 - Weekly project digest generation
 - Project search functionality
+- Project teammates management (add/remove teammates)
+- Teammate join requests and approval flow
 
 ### Testing
 
@@ -420,4 +434,4 @@ flake8 .
   - The webhook is set to `/webhook` and returns HTTP 200
   - The PTB thread is not exiting immediately (check logs for shutdown or errors)
   - Your handlers are registered and error handler is logging exceptions
-- For more, see the Deployment Bugs & Fixes Log at the end of this README. 
+- For more, see the Deployment Bugs & Fixes Log at the end of this README.
